@@ -21,6 +21,7 @@ const SEED = [
   { id: 10, date: "2025-03-01T10:09:00Z", project_name: "Claude Code Review", one_liner: "When a pull request opens, Claude automatically dispatches agents to review it for bugs.", what_it_does: "Anthropic added a Code Review feature to Claude Code that triggers automatically when a PR is opened. A team of agents scans the diff and hunts for bugs, posting findings as part of the review workflow.", who_built_it: "Anthropic", category: "agent", tech_stack: ["Claude", "GitHub", "agents"], novelty_score: 7, novelty_verdict: "Solid Execution", novelty_reasoning: "CodeRabbit and others have done automated PR review, but Claude doing it natively inside Claude Code with multi-agent dispatch is a meaningfully tighter integration.", hook: "When a PR opens, Claude dispatches a team of agents to hunt for bugs.", missing: "Does this require Claude Code on both sides? What is the pricing model per review?", editorial_note: "The right feature at the right moment — this is Claude Code becoming the default development environment, not just a coding assistant." },
   { id: 11, date: "2025-03-01T10:10:00Z", project_name: "Manus Desktop", one_liner: "Manus AI agent moved from the cloud to your local machine with direct access to your computer.", what_it_does: "Manus introduced My Computer, a desktop app feature that lets the Manus AI agent run locally on your machine rather than in the cloud. The agent gets direct access to local files and applications.", who_built_it: "ManusAI", category: "agent", tech_stack: ["desktop", "local AI", "agent"], novelty_score: 7, novelty_verdict: "Solid Execution", novelty_reasoning: "Local execution of a general-purpose agent is a meaningful privacy and latency improvement over cloud-only. The framing of putting AI inside your computer is a useful mental model shift.", hook: "Taking Manus out of the cloud and putting it on your desktop — your AI agent, now on your local machine.", missing: "What can it actually access locally? Full filesystem? Browser? The scope of local access defines usefulness.", editorial_note: "The privacy angle writes itself — Manus should be leading with that harder instead of the tech spec." },
   { id: 12, date: "2025-03-01T10:11:00Z", project_name: "Replit Agent 4", one_liner: "An AI built for creative collaboration between humans and agents with infinite canvas and parallel agent execution.", what_it_does: "Replit launched Agent 4, described as the first AI built for creative human-agent collaboration. Features include an infinite canvas for design, team collaboration, parallel agent execution, and shipping of full apps, sites, and slides.", who_built_it: "amasad / Replit", category: "agent", tech_stack: ["Replit", "agents", "canvas"], novelty_score: 7, novelty_verdict: "Solid Execution", novelty_reasoning: "The infinite canvas approach to software creation is genuinely new framing for Replit and feels distinct from the text-based vibe coding paradigm. Parallel agents within one project is a meaningful workflow change.", hook: "Software is not merely technical anymore — it is creative. The first AI built for creative collaboration between humans and agents.", missing: "What does parallel agents actually mean in practice? Can they conflict? How does the user manage diverging agent threads?", editorial_note: "Replit keeps repositioning itself right when the market moves — Agent 4 is their best framing yet." },
+  { id: 13, date: "2025-03-01T10:12:00Z", project_name: "Google Maps Ask Maps", one_liner: "Google Maps rebuilt around a Gemini-powered AI layer that lets you ask anything about any place.", what_it_does: "Google Maps introduced Ask Maps, a Gemini-powered conversational layer that lets users ask anything about any location. The update also includes immersive navigation and personalization features. Rolling out on Android and iOS in the US and India.", who_built_it: "Google", category: "app", tech_stack: ["Gemini", "Google Maps", "iOS", "Android"], novelty_score: 6, novelty_verdict: "Solid Execution", novelty_reasoning: "Conversational search in maps is not new but Gemini's reasoning quality plus the scale of Maps data makes this a potentially step-change experience.", hook: "The way you use Google Maps will never be the same.", missing: "How does Ask Maps handle ambiguous or subjective queries? That gap reveals the AI quality.", editorial_note: "Google is finally using its data advantage intelligently — this should have existed three years ago." },
 ];
 
 const SYSTEM_PROMPT = `You are the editorial engine behind INTRODUCING — a daily digest and intelligence layer for the agentic internet. You receive raw launch posts from developers and return structured journalistic profiles.
@@ -40,7 +41,9 @@ Return ONLY a valid JSON object, no markdown, no backticks, no preamble:
   "novelty_reasoning": "1-2 sentences on why you gave that score",
   "hook": "The one sentence someone would screenshot from this launch",
   "missing": "What is not being said? What question does this raise?",
-  "editorial_note": "A sharp journalistic 1-sentence take, honest but not cruel"
+  "editorial_note": "A sharp journalistic 1-sentence take, honest but not cruel",
+  "source_url": "Any URL found in the post — X link, GitHub repo, product site, or empty string if none found",
+  "product_url": "The product or project homepage URL if mentioned or detectable, otherwise empty string"
 }`;
 
 const VERDICT_CFG = {
@@ -67,8 +70,8 @@ function Grain() {
 function Beam() {
   return (
     <div style={{ position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0 }}>
-      <div style={{ position:"absolute",top:"-30%",right:"-5%",width:2,height:"160%",background:"linear-gradient(180deg,transparent,rgba(230,48,48,0.5) 35%,rgba(230,48,48,0.5) 65%,transparent)",transform:"rotate(-32deg)",filter:"blur(0.5px)" }}/>
-      <div style={{ position:"absolute",top:"-30%",right:"-2%",width:120,height:"160%",background:"linear-gradient(180deg,transparent,rgba(230,48,48,0.025) 35%,rgba(230,48,48,0.025) 65%,transparent)",transform:"rotate(-32deg)" }}/>
+      <div style={{ position:"absolute",top:"-30%",right:"30%",width:2,height:"160%",background:"linear-gradient(180deg,transparent,rgba(230,48,48,0.4) 35%,rgba(230,48,48,0.4) 65%,transparent)",transform:"rotate(-32deg)",filter:"blur(0.5px)" }}/>
+      <div style={{ position:"absolute",top:"-30%",right:"27%",width:100,height:"160%",background:"linear-gradient(180deg,transparent,rgba(230,48,48,0.02) 35%,rgba(230,48,48,0.02) 65%,transparent)",transform:"rotate(-32deg)" }}/>
     </div>
   );
 }
@@ -78,7 +81,7 @@ function NoveltyBar({ score }) {
   return (
     <div style={{ display:"flex",alignItems:"center",gap:10 }}>
       <div style={{ flex:1,height:2,background:"rgba(255,255,255,0.05)" }}>
-        <div style={{ height:"100%",width:`${score*10}%`,background:c,transition:"width 0.8s ease" }}/>
+        <div style={{ height:"100%",width:`${score*10}%`,background:c }}/>
       </div>
       <span style={{ fontFamily:"monospace",fontSize:11,color:"rgba(255,255,255,0.2)",minWidth:32,textAlign:"right" }}>{score}/10</span>
     </div>
@@ -93,65 +96,112 @@ function Chip({ label, color, bg, border }) {
   );
 }
 
+// Big novelty score visual for right panel
+function NoveltyDisplay({ score, verdict }) {
+  const cfg = VERDICT_CFG[verdict] || VERDICT_CFG["Solid Execution"];
+  const segments = Array.from({length:10},(_,i)=>i+1);
+  return (
+    <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",padding:"24px 16px",borderLeft:"1px solid rgba(255,255,255,0.05)" }}>
+      <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.15)",letterSpacing:"0.25em",textTransform:"uppercase",marginBottom:20 }}>
+        Novelty Signal
+      </div>
+      {/* Vertical bar segments */}
+      <div style={{ display:"flex",flexDirection:"column-reverse",gap:3,marginBottom:16 }}>
+        {segments.map(i=>(
+          <div key={i} style={{
+            width:32,height:8,
+            background: i<=score ? (i>=8?"#e63030":i>=5?"rgba(230,48,48,0.5)":"rgba(74,127,232,0.4)") : "rgba(255,255,255,0.04)",
+            border: i<=score ? "none" : "1px solid rgba(255,255,255,0.05)",
+            transition:"background 0.3s",
+          }}/>
+        ))}
+      </div>
+      <div style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:52,color:cfg.color,lineHeight:1,letterSpacing:"0.02em" }}>
+        {score}
+      </div>
+      <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.15)",letterSpacing:"0.1em",marginTop:2 }}>/10</div>
+      <div style={{ marginTop:16,padding:"3px 10px",background:cfg.bg,border:`1px solid ${cfg.border}`,fontFamily:"monospace",fontSize:8,color:cfg.color,textTransform:"uppercase",letterSpacing:"0.15em",textAlign:"center" }}>
+        {verdict}
+      </div>
+    </div>
+  );
+}
+
 function FeaturedCard({ entry }) {
   const vc = VERDICT_CFG[entry.novelty_verdict] || VERDICT_CFG["Solid Execution"];
   const cc = CAT_CFG[entry.category] || CAT_CFG.other;
   return (
-    <div style={{ position:"relative",overflow:"hidden",background:"linear-gradient(135deg,#0c1525 0%,#070b14 55%,#0a0508 100%)",border:"1px solid rgba(230,48,48,0.18)",padding:"32px 32px 28px" }}>
+    <div style={{ position:"relative",overflow:"hidden",background:"linear-gradient(135deg,#0c1525 0%,#070b14 55%,#0a0508 100%)",border:"1px solid rgba(230,48,48,0.18)" }}>
       <Beam/>
-      <div style={{ position:"relative",zIndex:1 }}>
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18,flexWrap:"wrap",gap:8 }}>
-          <div style={{ display:"flex",gap:6 }}>
-            <Chip label={entry.category} color={cc} bg={`${cc}12`} border={`${cc}30`}/>
-            <Chip label={entry.novelty_verdict} color={vc.color} bg={vc.bg} border={vc.border}/>
+      {/* Two-column layout */}
+      <div style={{ position:"relative",zIndex:1,display:"grid",gridTemplateColumns:"1fr 120px" }}>
+        {/* LEFT: main content */}
+        <div style={{ padding:"28px 28px 24px" }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:8 }}>
+            <div style={{ display:"flex",gap:6 }}>
+              <Chip label={entry.category} color={cc} bg={`${cc}12`} border={`${cc}30`}/>
+            </div>
+            <span style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.15)",letterSpacing:"0.15em" }}>
+              {new Date(entry.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}).toUpperCase()}
+            </span>
           </div>
-          <span style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.15)",letterSpacing:"0.15em" }}>
-            {new Date(entry.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}).toUpperCase()}
-          </span>
-        </div>
 
-        <h2 style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:"clamp(30px,5vw,52px)",fontWeight:400,color:"#fff",margin:"0 0 4px",letterSpacing:"0.04em",lineHeight:0.93,textTransform:"uppercase" }}>
-          {entry.project_name}
-        </h2>
-        {entry.who_built_it && entry.who_built_it!=="Unknown" && (
-          <div style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.2)",marginBottom:14,letterSpacing:"0.1em" }}>BY {entry.who_built_it.toUpperCase()}</div>
-        )}
-        <p style={{ color:"rgba(255,255,255,0.5)",fontSize:14,lineHeight:1.7,margin:"0 0 22px",fontFamily:"'Crimson Pro',Georgia,serif",maxWidth:560 }}>
-          {entry.what_it_does}
-        </p>
-
-        <div style={{ margin:"20px 0",paddingLeft:18,borderLeft:"2px solid #e63030",position:"relative" }}>
-          <p style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:"clamp(15px,2.2vw,20px)",color:"#fff",margin:0,letterSpacing:"0.05em",lineHeight:1.25,textTransform:"uppercase" }}>
-            {entry.hook}
+          <h2 style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:"clamp(28px,4vw,46px)",fontWeight:400,color:"#fff",margin:"0 0 4px",letterSpacing:"0.04em",lineHeight:0.93,textTransform:"uppercase" }}>
+            {entry.project_name}
+          </h2>
+          {entry.who_built_it && entry.who_built_it!=="Unknown" && (
+            <div style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.2)",marginBottom:12,letterSpacing:"0.1em" }}>BY {entry.who_built_it.toUpperCase()}</div>
+          )}
+          <p style={{ color:"rgba(255,255,255,0.5)",fontSize:13,lineHeight:1.7,margin:"0 0 18px",fontFamily:"'Crimson Pro',Georgia,serif",maxWidth:520 }}>
+            {entry.what_it_does}
           </p>
-        </div>
 
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:22,marginTop:22 }}>
-          <div>
-            <div style={{ fontFamily:"monospace",fontSize:8,color:"#e63030",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8 }}>Novelty</div>
-            <NoveltyBar score={entry.novelty_score}/>
-            <p style={{ color:"rgba(255,255,255,0.25)",fontSize:11,margin:"8px 0 0",lineHeight:1.5,fontFamily:"monospace" }}>{entry.novelty_reasoning}</p>
+          <div style={{ margin:"18px 0",paddingLeft:16,borderLeft:"2px solid #e63030" }}>
+            <p style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:"clamp(14px,1.8vw,18px)",color:"#fff",margin:0,letterSpacing:"0.05em",lineHeight:1.25,textTransform:"uppercase" }}>
+              {entry.hook}
+            </p>
           </div>
-          <div>
-            <div style={{ fontFamily:"monospace",fontSize:8,color:"#4a7fe8",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8 }}>Stack</div>
-            <div style={{ display:"flex",flexWrap:"wrap",gap:4 }}>
-              {(entry.tech_stack||[]).map(t=>(
-                <span key={t} style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.2)",background:"rgba(255,255,255,0.03)",padding:"2px 6px",border:"1px solid rgba(255,255,255,0.06)" }}>{t}</span>
-              ))}
+
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,marginTop:18 }}>
+            <div>
+              <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.15)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6 }}>Novelty</div>
+              <NoveltyBar score={entry.novelty_score}/>
+              <p style={{ color:"rgba(255,255,255,0.22)",fontSize:10,margin:"6px 0 0",lineHeight:1.5,fontFamily:"monospace" }}>{entry.novelty_reasoning}</p>
+            </div>
+            <div>
+              <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.15)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6 }}>Stack</div>
+              <div style={{ display:"flex",flexWrap:"wrap",gap:4 }}>
+                {(entry.tech_stack||[]).map(t=>(
+                  <span key={t} style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.2)",background:"rgba(255,255,255,0.03)",padding:"2px 6px",border:"1px solid rgba(255,255,255,0.06)" }}>{t}</span>
+                ))}
+              </div>
             </div>
           </div>
+
+          <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:16,marginTop:16,display:"grid",gridTemplateColumns:"1fr 1fr",gap:18 }}>
+            <div>
+              <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.12)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4 }}>What is missing</div>
+              <p style={{ color:"rgba(255,255,255,0.22)",fontSize:10,margin:0,lineHeight:1.6,fontFamily:"monospace" }}>{entry.missing}</p>
+            </div>
+            <div>
+              <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.12)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:4 }}>Editorial</div>
+              <p style={{ color:"rgba(255,255,255,0.28)",fontSize:11,margin:0,lineHeight:1.6,fontFamily:"'Crimson Pro',Georgia,serif",fontStyle:"italic" }}>{entry.editorial_note}</p>
+            </div>
+          </div>
+          {entry.source_url && (
+            <div style={{ marginTop:20,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",gap:12,flexWrap:"wrap" }}>
+              <a href={entry.source_url} target="_blank" rel="noopener noreferrer" style={{ display:"inline-flex",alignItems:"center",gap:6,fontFamily:"monospace",fontSize:9,color:"#e63030",textDecoration:"none",letterSpacing:"0.12em",textTransform:"uppercase",border:"1px solid rgba(230,48,48,0.25)",padding:"5px 12px",background:"rgba(230,48,48,0.05)",transition:"background 0.15s" }}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(230,48,48,0.12)"}
+                onMouseLeave={e=>e.currentTarget.style.background="rgba(230,48,48,0.05)"}
+              >
+                ↗ View original post
+              </a>
+            </div>
+          )}
         </div>
 
-        <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18,marginTop:18,display:"grid",gridTemplateColumns:"1fr 1fr",gap:22 }}>
-          <div>
-            <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.15)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:5 }}>What is missing</div>
-            <p style={{ color:"rgba(255,255,255,0.25)",fontSize:11,margin:0,lineHeight:1.6,fontFamily:"monospace" }}>{entry.missing}</p>
-          </div>
-          <div>
-            <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.15)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:5 }}>Editorial</div>
-            <p style={{ color:"rgba(255,255,255,0.3)",fontSize:12,margin:0,lineHeight:1.6,fontFamily:"'Crimson Pro',Georgia,serif",fontStyle:"italic" }}>{entry.editorial_note}</p>
-          </div>
-        </div>
+        {/* RIGHT: novelty score panel */}
+        <NoveltyDisplay score={entry.novelty_score} verdict={entry.novelty_verdict}/>
       </div>
     </div>
   );
@@ -173,6 +223,13 @@ function ListCard({ entry, onClick }) {
           {entry.project_name}
         </div>
         <div style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.2)",lineHeight:1.5 }}>{entry.one_liner}</div>
+        {entry.source_url && (
+          <a href={entry.source_url} target="_blank" rel="noopener noreferrer"
+            onClick={e=>e.stopPropagation()}
+            style={{ display:"inline-block",marginTop:5,fontFamily:"monospace",fontSize:8,color:"rgba(230,48,48,0.5)",textDecoration:"none",letterSpacing:"0.1em" }}>
+            ↗ source
+          </a>
+        )}
       </div>
       <div style={{ textAlign:"right",paddingTop:2 }}>
         <div style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:20,color:entry.novelty_score>=7?"#e63030":"rgba(255,255,255,0.15)" }}>{entry.novelty_score}</div>
@@ -198,6 +255,39 @@ function Stats({ entries }) {
   );
 }
 
+// Bull detector mode — rates novelty distribution
+function BullRadar({ entries }) {
+  const total = entries.length || 1;
+  const dist = VERDICTS.slice(1).map(v=>({
+    v,
+    count: entries.filter(e=>e.novelty_verdict===v).length,
+    pct: Math.round(entries.filter(e=>e.novelty_verdict===v).length/total*100),
+    cfg: VERDICT_CFG[v],
+  }));
+  return (
+    <div style={{ border:"1px solid rgba(255,255,255,0.05)",padding:"24px",marginBottom:32,background:"rgba(0,0,0,0.2)" }}>
+      <div style={{ fontFamily:"monospace",fontSize:8,color:"#e63030",letterSpacing:"0.25em",textTransform:"uppercase",marginBottom:16 }}>
+        ◈ Bull Radar — Hype vs Signal
+      </div>
+      <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+        {dist.map(({v,count,pct,cfg})=>(
+          <div key={v} style={{ display:"grid",gridTemplateColumns:"140px 1fr 40px",alignItems:"center",gap:12 }}>
+            <div style={{ fontFamily:"monospace",fontSize:9,color:cfg.color,textTransform:"uppercase",letterSpacing:"0.1em" }}>{v}</div>
+            <div style={{ height:4,background:"rgba(255,255,255,0.04)",position:"relative" }}>
+              <div style={{ position:"absolute",left:0,top:0,height:"100%",width:`${pct}%`,background:cfg.color,opacity:0.6 }}/>
+            </div>
+            <div style={{ fontFamily:"monospace",fontSize:10,color:"rgba(255,255,255,0.25)",textAlign:"right" }}>{count}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop:16,fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.15)",lineHeight:1.6 }}>
+        {entries.filter(e=>e.novelty_score>=8).length} entries score 8+ out of {total} profiled.
+        {" "}Average novelty: {(entries.reduce((s,e)=>s+(e.novelty_score||0),0)/total).toFixed(1)}/10.
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -208,6 +298,7 @@ export default function App() {
   const [featured, setFeatured] = useState(null);
   const [apiKey, setApiKey] = useState(()=>localStorage.getItem("intro-key")||"");
   const [showKey, setShowKey] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState("");
   const keyRef = useRef();
 
   useEffect(()=>{ boot(); },[]);
@@ -243,8 +334,9 @@ export default function App() {
       const block=(data.content||[]).find(b=>b.type==="text");
       if(!block)throw new Error("no response");
       const parsed=JSON.parse(block.text.replace(/```json|```/g,"").trim());
-      await addEntry({...parsed,id:Date.now(),date:new Date().toISOString()});
-      setInput("");setView("digest");
+      const finalUrl = sourceUrl.trim() || parsed.source_url || parsed.product_url || "";
+      await addEntry({...parsed,id:Date.now(),date:new Date().toISOString(),source_url:finalUrl});
+      setInput("");setSourceUrl("");setView("digest");
     } catch{setError("Could not parse that post. Try pasting more of the original text.");}
     setLoading(false);
   }
@@ -260,15 +352,24 @@ export default function App() {
       {/* HEADER */}
       <header style={{ position:"sticky",top:0,zIndex:50,background:"rgba(5,8,16,0.96)",backdropFilter:"blur(16px)",borderBottom:"1px solid rgba(255,255,255,0.05)",padding:"0 24px",height:50,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <div style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:20,letterSpacing:"0.1em",color:"#fff",display:"flex",alignItems:"center",gap:8 }}>
-            INTRODUCING
-            <svg width="20" height="2" viewBox="0 0 20 2"><line x1="0" y1="1" x2="20" y2="1" stroke="url(#lr)" strokeWidth="2"/><defs><linearGradient id="lr"><stop offset="0%" stopColor="#e63030"/><stop offset="100%" stopColor="transparent"/></linearGradient></defs></svg>
-          </div>
+          {/* INTRODUCING as home button */}
+          <button
+            onClick={()=>setView("digest")}
+            style={{ background:"none",border:"none",cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:8 }}
+          >
+            <span style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:20,letterSpacing:"0.1em",color:"#fff" }}>
+              INTRODUCING
+            </span>
+            <svg width="20" height="2" viewBox="0 0 20 2">
+              <line x1="0" y1="1" x2="20" y2="1" stroke="url(#lr)" strokeWidth="2"/>
+              <defs><linearGradient id="lr"><stop offset="0%" stopColor="#e63030"/><stop offset="100%" stopColor="transparent"/></linearGradient></defs>
+            </svg>
+          </button>
           <span style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.12)",letterSpacing:"0.2em" }}>{entries.length} PROFILED</span>
         </div>
         <div style={{ display:"flex",gap:1,alignItems:"center" }}>
-          {["digest","archive","analyze"].map(v=>(
-            <button key={v} onClick={()=>setView(v)} style={{ background:"none",border:"none",color:view===v?"#fff":"rgba(255,255,255,0.2)",padding:"4px 12px",cursor:"pointer",fontFamily:"monospace",fontSize:9,textTransform:"uppercase",letterSpacing:"0.15em",borderBottom:view===v?"1px solid #e63030":"1px solid transparent",transition:"color 0.15s" }}>{v}</button>
+          {["digest","archive","bull","analyze"].map(v=>(
+            <button key={v} onClick={()=>setView(v)} style={{ background:"none",border:"none",color:view===v?"#fff":"rgba(255,255,255,0.2)",padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",fontSize:9,textTransform:"uppercase",letterSpacing:"0.15em",borderBottom:view===v?"1px solid #e63030":"1px solid transparent",transition:"color 0.15s" }}>{v}</button>
           ))}
           <button onClick={()=>setShowKey(!showKey)} style={{ background:"none",border:"none",cursor:"pointer",color:apiKey?"#e63030":"rgba(255,255,255,0.12)",fontFamily:"monospace",fontSize:9,letterSpacing:"0.15em",padding:"4px 8px",marginLeft:8 }}>
             {apiKey?"● KEY":"○ KEY"}
@@ -336,6 +437,25 @@ export default function App() {
           </div>
         )}
 
+        {/* BULL RADAR */}
+        {view==="bull"&&(
+          <div>
+            <h2 style={{ fontFamily:"'Bebas Neue',Impact,sans-serif",fontSize:40,letterSpacing:"0.06em",marginBottom:6,color:"#fff" }}>BULL RADAR</h2>
+            <p style={{ fontFamily:"monospace",fontSize:9,color:"rgba(255,255,255,0.18)",marginBottom:28,letterSpacing:"0.1em" }}>
+              Cutting through launch hype. Signal vs noise across everything profiled.
+            </p>
+            <BullRadar entries={entries}/>
+            <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.15)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:12 }}>
+              Highest signal launches
+            </div>
+            <div style={{ border:"1px solid rgba(255,255,255,0.05)" }}>
+              {[...entries].sort((a,b)=>(b.novelty_score||0)-(a.novelty_score||0)).slice(0,5).map(e=>(
+                <ListCard key={e.id} entry={e} onClick={()=>{setFeatured(e);setView("digest");}}/>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ANALYZE */}
         {view==="analyze"&&(
           <div>
@@ -348,7 +468,11 @@ export default function App() {
                 Set your Anthropic API key first — click ○ KEY in the header.
               </div>
             )}
-            <textarea value={input} onChange={e=>setInput(e.target.value)} placeholder="Introducing something that will change everything..." style={{ width:"100%",minHeight:160,background:"#0a0f1a",border:"1px solid rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.75)",padding:16,fontSize:14,lineHeight:1.7,fontFamily:"'Crimson Pro',Georgia,serif",display:"block",marginBottom:12 }}/>
+            <textarea value={input} onChange={e=>setInput(e.target.value)} placeholder="Introducing something that will change everything..." style={{ width:"100%",minHeight:160,background:"#0a0f1a",border:"1px solid rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.75)",padding:16,fontSize:14,lineHeight:1.7,fontFamily:"'Crimson Pro',Georgia,serif",display:"block",marginBottom:12,resize:"vertical" }}/>
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.2)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6 }}>Source URL (optional — paste the X post, GitHub, or product link)</div>
+              <input value={sourceUrl} onChange={e=>setSourceUrl(e.target.value)} placeholder="https://x.com/..." style={{ width:"100%",background:"#0a0f1a",border:"1px solid rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.6)",padding:"10px 12px",fontFamily:"monospace",fontSize:11,outline:"none" }}/>
+            </div>/>
             {error&&<div style={{ marginBottom:14,padding:12,background:"rgba(230,48,48,0.05)",border:"1px solid rgba(230,48,48,0.15)",fontFamily:"monospace",fontSize:10,color:"rgba(230,48,48,0.6)" }}>{error}</div>}
             <div style={{ display:"flex",justifyContent:"flex-end" }}>
               {loading
