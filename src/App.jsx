@@ -535,7 +535,7 @@ export default function App() {
             <div style={{ marginBottom:12 }}>
               <div style={{ fontFamily:"monospace",fontSize:8,color:"rgba(255,255,255,0.2)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:6 }}>Source URL (optional — paste the X post, GitHub, or product link)</div>
               <input value={sourceUrl} onChange={e=>setSourceUrl(e.target.value)} placeholder="https://x.com/..." style={{ width:"100%",background:"#0a0f1a",border:"1px solid rgba(255,255,255,0.07)",color:"rgba(255,255,255,0.6)",padding:"10px 12px",fontFamily:"monospace",fontSize:11,outline:"none" }}/>
-            </div>/>
+            </div>
             {error&&<div style={{ marginBottom:14,padding:12,background:"rgba(230,48,48,0.05)",border:"1px solid rgba(230,48,48,0.15)",fontFamily:"monospace",fontSize:10,color:"rgba(230,48,48,0.6)" }}>{error}</div>}
             <div style={{ display:"flex",justifyContent:"flex-end" }}>
               {loading
