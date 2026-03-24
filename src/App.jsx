@@ -1,11 +1,58 @@
 import { useState, useEffect, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-const STORAGE_KEY = "introducing-v1";
+// ── Supabase client ──────────────────────────────────────────────────────────
+// Keys come from Vercel env vars (VITE_ prefix exposes them to the browser)
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+// ── Storage layer ────────────────────────────────────────────────────────────
+// Uses Supabase when keys are present, falls back to localStorage for local dev
 async function loadFromStorage() {
-  try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from("entries")
+        .select("*")
+        .order("date", { ascending: false });
+      if (error) throw error;
+      if (data && data.length > 0) return data;
+    } catch (e) { console.warn("Supabase load failed, using localStorage", e); }
+  }
+  try { const r = localStorage.getItem("introducing-v1"); return r ? JSON.parse(r) : null; } catch { return null; }
 }
-async function saveToStorage(entries) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); } catch {}
+
+async function saveToStorage(entry) {
+  if (supabase) {
+    try {
+      const { error } = await supabase.from("entries").upsert([entry]);
+      if (error) throw error;
+      return;
+    } catch (e) { console.warn("Supabase save failed, using localStorage", e); }
+  }
+  // localStorage fallback — save full array
+  try {
+    const r = localStorage.getItem("introducing-v1");
+    const existing = r ? JSON.parse(r) : [];
+    localStorage.setItem("introducing-v1", JSON.stringify([entry, ...existing.filter(e => e.id !== entry.id)]));
+  } catch {}
+}
+
+async function seedIfEmpty(seedData) {
+  if (supabase) {
+    try {
+      const { data } = await supabase.from("entries").select("id").limit(1);
+      if (data && data.length > 0) return; // already has data
+      // Insert all seed entries
+      const { error } = await supabase.from("entries").insert(
+        seedData.map(e => ({ ...e, tech_stack: e.tech_stack || [] }))
+      );
+      if (error) console.warn("Seed insert error:", error);
+    } catch (e) { console.warn("Seed check failed:", e); }
+  }
 }
 
 const SEED = [
@@ -316,15 +363,19 @@ export default function App() {
   useEffect(()=>{ boot(); },[]);
 
   async function boot() {
+    // Seed Supabase if empty (first ever deploy)
+    await seedIfEmpty(SEED);
     const s = await loadFromStorage();
     if(s&&s.length>0){setEntries(s);setFeatured(s[0]);}
-    else{setEntries(SEED);setFeatured(SEED[0]);await saveToStorage(SEED);}
+    else{setEntries(SEED);setFeatured(SEED[0]);}
   }
 
   async function addEntry(entry) {
+    // Optimistic UI update
     const updated=[entry,...entries];
     setEntries(updated);setFeatured(entry);
-    await saveToStorage(updated);
+    // Persist to Supabase (or localStorage fallback)
+    await saveToStorage(entry);
   }
 
   function saveKey(){
