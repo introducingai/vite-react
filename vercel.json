@@ -1,4 +1,9 @@
 {
+  "rewrites": [
+    { "source": "/api/auth/login", "destination": "/api/auth/login.js" },
+    { "source": "/api/auth/session", "destination": "/api/auth/session.js" },
+    { "source": "/api/auth/logout", "destination": "/api/auth/logout.js" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
