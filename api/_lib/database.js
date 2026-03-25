@@ -18,6 +18,18 @@ const ENTRY_COLUMNS = [
   "editorial_note",
 ].join(",");
 
+const AUDIT_LOG_COLUMNS = [
+  "id",
+  "created_at",
+  "action",
+  "actor_type",
+  "actor_email",
+  "actor_role",
+  "target_type",
+  "target_id",
+  "metadata",
+].join(",");
+
 function normalizeUrl(value) {
   return typeof value === "string" ? value.replace(/\/+$/, "") : "";
 }
@@ -174,6 +186,57 @@ export async function createEntry(entry) {
   });
 
   return mapEntry(inserted);
+}
+
+export async function createAuditLog(event) {
+  const payload = {
+    action: typeof event?.action === "string" ? event.action.trim().slice(0, 120) : "",
+    actor_type: typeof event?.actorType === "string" ? event.actorType.trim().slice(0, 60) : "",
+    actor_email: typeof event?.actorEmail === "string" ? event.actorEmail.trim().slice(0, 180) : "",
+    actor_role: typeof event?.actorRole === "string" ? event.actorRole.trim().slice(0, 60) : "",
+    target_type: typeof event?.targetType === "string" ? event.targetType.trim().slice(0, 60) : "",
+    target_id: typeof event?.targetId === "string" ? event.targetId.trim().slice(0, 120) : "",
+    metadata: event?.metadata && typeof event.metadata === "object" ? event.metadata : {},
+  };
+
+  if (!payload.action) {
+    throw new Error("Audit action is required.");
+  }
+
+  if (!isDatabaseConfigured()) {
+    return {
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString(),
+      ...payload,
+      local_only: true,
+    };
+  }
+
+  const [inserted] = await supabaseRequest("audit_logs", {
+    method: "POST",
+    body: payload,
+  });
+
+  return inserted;
+}
+
+export async function listAuditLogs(limit = 50) {
+  const maxRows = Number.isFinite(limit) ? Math.max(1, Math.min(Number(limit), 200)) : 50;
+
+  if (!isDatabaseConfigured()) {
+    return {
+      auditLogs: [],
+      sharedDatabase: false,
+      dataSource: "local",
+    };
+  }
+
+  const rows = await supabaseRequest(`audit_logs?select=${AUDIT_LOG_COLUMNS}&order=created_at.desc&limit=${maxRows}`);
+  return {
+    auditLogs: Array.isArray(rows) ? rows : [],
+    sharedDatabase: true,
+    dataSource: "supabase",
+  };
 }
 
 export async function createSubmission(payload) {
