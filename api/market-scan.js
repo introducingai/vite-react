@@ -1,8 +1,9 @@
-import { isAllowedOrigin } from "./_lib/security.js";
+import { applyRateLimitHeaders, applySecurityHeaders, checkRateLimit, getClientIp, getRouteRateLimitConfig, isAllowedOrigin } from "./_lib/security.js";
 import { runMarketScan } from "./_lib/marketScan.js";
 
 function sendJson(res, statusCode, payload) {
   res.status(statusCode);
+  applySecurityHeaders(res);
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   res.send(JSON.stringify(payload));
@@ -27,11 +28,22 @@ export default async function handler(req, res) {
   }
 
   const origin = req.headers.origin;
-  if (!isAllowedOrigin(origin, req)) {
+  if (!isAllowedOrigin(origin, req, { allowMissingOrigin: false })) {
     return sendJson(res, 403, { error: "Origin not allowed." });
   }
 
   try {
+    const clientIp = getClientIp(req);
+    const rateLimit = await checkRateLimit(`market-scan:${clientIp}`, getRouteRateLimitConfig("MARKET_SCAN_RATE_LIMIT", { maxRequests: 6, windowMs: 60_000 }));
+    applyRateLimitHeaders(res, rateLimit);
+
+    if (!rateLimit.allowed) {
+      if (rateLimit.statusCode === 429) {
+        res.setHeader("Retry-After", String(Math.max(Math.ceil((rateLimit.resetAt - Date.now()) / 1000), 1)));
+      }
+      return sendJson(res, rateLimit.statusCode || 429, { error: rateLimit.error || "Rate limit exceeded." });
+    }
+
     const body = parseBody(req.body);
     const query = typeof body?.query === "string" ? body.query.trim() : "";
 
