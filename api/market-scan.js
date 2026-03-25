@@ -58,6 +58,6 @@ export default async function handler(req, res) {
     const result = await runMarketScan(query);
     return sendJson(res, 200, { result });
   } catch (error) {
-    return sendJson(res, 500, { error: error instanceof Error ? error.message : "Unexpected server error." });
+    return sendJson(res, 500, { error: "An unexpected error occurred. Please try again." });
   }
 }
