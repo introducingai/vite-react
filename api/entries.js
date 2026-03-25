@@ -88,6 +88,6 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "GET, POST");
     return sendJson(res, 405, { error: "Method not allowed." });
   } catch (error) {
-    return sendJson(res, 500, { error: error instanceof Error ? error.message : "Unexpected server error." });
+    return sendJson(res, 500, { error: "An unexpected error occurred. Please try again." });
   }
 }
