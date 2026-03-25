@@ -1010,7 +1010,7 @@ async function readJsonResponse(response, fallbackMessage) {
   try {
     return JSON.parse(rawText);
   } catch {
-    throw new Error(`${fallbackMessage || "Invalid JSON response."} Raw body: ${rawText.slice(0, 240)}`);
+    throw new Error(fallbackMessage || "Service returned an unexpected response. Please try again.");
   }
 }
 
