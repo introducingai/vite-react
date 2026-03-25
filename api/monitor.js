@@ -37,6 +37,6 @@ export default async function handler(req, res) {
     const payload = await runSourceMonitorSweep(profile);
     return sendJson(res, 200, payload);
   } catch (error) {
-    return sendJson(res, 500, { error: error instanceof Error ? error.message : "Unexpected server error." });
+    return sendJson(res, 500, { error: "An unexpected error occurred. Please try again." });
   }
 }
