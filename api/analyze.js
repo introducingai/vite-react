@@ -1,5 +1,5 @@
 import { ANALYSIS_MODES, MAX_INPUT_CHARS, buildSystemPrompt, extractJsonObject, normalizeModePayload } from "../src/lib/analysis.js";
-import { applyRateLimitHeaders, checkRateLimit, getClientIp, isAllowedOrigin } from "./_lib/security.js";
+import { applyRateLimitHeaders, applySecurityHeaders, checkRateLimit, getClientIp, getRouteRateLimitConfig, isAllowedOrigin } from "./_lib/security.js";
 import { getEnabledProviders, runCloudProvider } from "./_lib/providers.js";
 
 const DEFAULT_MODELS = {
@@ -11,6 +11,7 @@ const DEFAULT_MODELS = {
 
 function sendJson(res, statusCode, payload) {
   res.status(statusCode);
+  applySecurityHeaders(res);
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   res.send(JSON.stringify(payload));
@@ -35,7 +36,7 @@ export default async function handler(req, res) {
   }
 
   const origin = req.headers.origin;
-  if (!isAllowedOrigin(origin, req)) {
+  if (!isAllowedOrigin(origin, req, { allowMissingOrigin: false })) {
     return sendJson(res, 403, { error: "Origin not allowed." });
   }
 
@@ -45,12 +46,14 @@ export default async function handler(req, res) {
   }
 
   const clientIp = getClientIp(req);
-  const rateLimit = checkRateLimit(`analyze:${clientIp}`);
+  const rateLimit = await checkRateLimit(`analyze:${clientIp}`, getRouteRateLimitConfig("ANALYZE_RATE_LIMIT", { maxRequests: 10, windowMs: 60_000 }));
   applyRateLimitHeaders(res, rateLimit);
 
   if (!rateLimit.allowed) {
-    res.setHeader("Retry-After", String(Math.max(Math.ceil((rateLimit.resetAt - Date.now()) / 1000), 1)));
-    return sendJson(res, 429, { error: "Rate limit exceeded." });
+    if (rateLimit.statusCode === 429) {
+      res.setHeader("Retry-After", String(Math.max(Math.ceil((rateLimit.resetAt - Date.now()) / 1000), 1)));
+    }
+    return sendJson(res, rateLimit.statusCode || 429, { error: rateLimit.error || "Rate limit exceeded." });
   }
 
   try {
