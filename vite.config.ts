@@ -53,6 +53,10 @@ function localApiPlugin() {
           else if (pathname === "/api/monitor") modulePath = "./api/monitor.js";
           else if (pathname === "/api/entries") modulePath = "./api/entries.js";
           else if (pathname === "/api/submissions") modulePath = "./api/submissions.js";
+          else if (pathname === "/api/audit-logs") modulePath = "./api/audit-logs.js";
+          else if (pathname === "/api/auth/login") modulePath = "./api/auth/login.js";
+          else if (pathname === "/api/auth/session") modulePath = "./api/auth/session.js";
+          else if (pathname === "/api/auth/logout") modulePath = "./api/auth/logout.js";
           else return next();
 
           req.body = await readBody(req);
