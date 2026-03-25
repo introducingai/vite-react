@@ -8,22 +8,115 @@ const SUBMISSION_STORAGE_KEY = "introducing-submissions-v1";
 const DIGEST_STORAGE_KEY = "introducing-digest-v1";
 const MONITOR_STORAGE_KEY = "introducing-monitor-v1";
 const MONITOR_SNAPSHOTS_STORAGE_KEY = "introducing-monitor-snapshots-v1";
+const MONITOR_SETTINGS_STORAGE_KEY = "introducing-monitor-settings-v1";
 const ARTIFACT_STORAGE_KEY = "introducing-artifacts-v1";
 const WATCHLIST_STORAGE_KEY = "introducing-watchlist-v1";
+const WORKSPACE_STORAGE_KEY = "introducing-workspace-v1";
+const USAGE_STORAGE_KEY = "introducing-usage-v1";
+const ACCOUNT_STORAGE_KEY = "introducing-accounts-v1";
+const SESSION_STORAGE_KEY = "introducing-session-v1";
 const NAV_ITEMS = ["digest", "monitor", "launch", "gut-check", "bull", "submit", "review", "archive"];
 const VERDICTS = ["all", "Genuinely New", "Solid Execution", "Repackaged", "Vaporware"];
 const PROVIDER_OPTIONS = ["anthropic", "openai", "google", "grok", "ollama"];
+const MONITOR_PROFILE_OPTIONS = [
+  {
+    id: "balanced",
+    label: "Balanced",
+    description: "Covers the whole thesis across agents, llms, security, and web3.",
+  },
+  {
+    id: "agent-first",
+    label: "Agent-first",
+    description: "Bias toward agent launches, MCP, orchestration, and builder tooling.",
+  },
+  {
+    id: "security-first",
+    label: "Security-first",
+    description: "Bias toward pentest, auth, vulnerability, and AI security tooling.",
+  },
+  {
+    id: "web3-first",
+    label: "Web3-first",
+    description: "Bias toward memecoins, wallets, tokens, onchain, and crypto-native launches.",
+  },
+  {
+    id: "llm-infra",
+    label: "LLM infra",
+    description: "Bias toward local models, inference, Ollama, and OpenClaw-adjacent work.",
+  },
+];
 const DEFAULT_PROVIDER_SETTINGS = {
   provider: "anthropic",
   anthropicModel: "claude-sonnet-4-20250514",
   openaiModel: "gpt-4.1-mini",
   googleModel: "gemini-2.0-flash",
   grokModel: "grok-3-mini",
+  moderationToken: "",
   ollamaModel: "llama3.1:8b",
   ollamaBaseUrl: "http://127.0.0.1:11434",
   ollamaTemperature: "0.2",
   ollamaNumPredict: "700",
 };
+
+const DEFAULT_WORKSPACE = {
+  plan: "free",
+  operatorName: "Local workspace",
+};
+
+const DEFAULT_OPERATOR_AUTH = {
+  authenticated: false,
+  configured: false,
+  session: null,
+};
+
+const DEFAULT_ACCOUNT = {
+  id: "local-operator",
+  name: "Local Operator",
+  email: "local@introducing.demo",
+  role: "owner",
+  created_at: new Date().toISOString(),
+};
+
+const PLAN_CONFIG = {
+  free: {
+    label: "Free",
+    accent: "#9aa7ba",
+    description: "Digest, archive, submissions, review, and limited builder intelligence.",
+    limits: {
+      launch: 3,
+      "gut-check": 3,
+      bull: 5,
+      monitor: 2,
+    },
+    perks: ["Digest + archive access", "Submission + review loop", "Limited launch, gut-check, bull, and monitor usage"],
+  },
+  pro: {
+    label: "Pro",
+    accent: "#f45a43",
+    description: "Unlimited builder toolkit and market intelligence for active operators.",
+    limits: {
+      launch: null,
+      "gut-check": null,
+      bull: null,
+      monitor: null,
+    },
+    perks: ["Unlimited launch writing", "Unlimited gut-checks", "Unlimited market scans", "Unlimited monitor sweeps"],
+  },
+  studio: {
+    label: "Studio",
+    accent: "#66a3ff",
+    description: "For teams running editorial operations, review queues, and repeat launch workflows.",
+    limits: {
+      launch: null,
+      "gut-check": null,
+      bull: null,
+      monitor: null,
+    },
+    perks: ["Everything in Pro", "Shared database mode when connected", "Ready for future team billing and seats"],
+  },
+};
+
+const OPERATOR_ROLE_ORDER = ["viewer", "moderator", "editor", "admin"];
 
 const VERDICT_CFG = {
   "Genuinely New": { color: "#f45a43", bg: "rgba(244,90,67,0.10)", border: "rgba(244,90,67,0.24)" },
@@ -39,6 +132,16 @@ const CAT_CFG = {
   infra: "#9aa7ba",
   framework: "#b8c4ff",
   other: "#747c8c",
+};
+
+const UI_COLORS = {
+  border: "rgba(255,255,255,0.10)",
+  panel: "rgba(255,255,255,0.04)",
+  panelStrong: "rgba(255,255,255,0.06)",
+  textSoft: "rgba(255,255,255,0.72)",
+  textMuted: "rgba(255,255,255,0.56)",
+  textFaint: "rgba(255,255,255,0.36)",
+  label: "rgba(255,255,255,0.38)",
 };
 
 const PRODUCT_PILLARS = [
@@ -83,113 +186,210 @@ const LAUNCH_OUTPUTS = [
   "Missing proof checklist",
 ];
 
-async function loadFromStorage() {
+function getScopedStorageKey(baseKey, scopeId = "global") {
+  return `${baseKey}:${scopeId}`;
+}
+
+async function readStorageJson(key, fallback) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
-async function saveToStorage(entries) {
+async function writeStorageJson(key, value) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {}
 }
 
-async function loadSubmissionsFromStorage() {
-  try {
-    const raw = localStorage.getItem(SUBMISSION_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+async function loadFromStorage(scopeId) {
+  return readStorageJson(getScopedStorageKey(STORAGE_KEY, scopeId), null);
 }
 
-async function saveSubmissionsToStorage(submissions) {
-  try {
-    localStorage.setItem(SUBMISSION_STORAGE_KEY, JSON.stringify(submissions));
-  } catch {}
+async function saveToStorage(entries, scopeId) {
+  await writeStorageJson(getScopedStorageKey(STORAGE_KEY, scopeId), entries);
 }
 
-async function loadDigestPlanFromStorage() {
-  try {
-    const raw = localStorage.getItem(DIGEST_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+async function loadSubmissionsFromStorage(scopeId) {
+  return readStorageJson(getScopedStorageKey(SUBMISSION_STORAGE_KEY, scopeId), []);
 }
 
-async function saveDigestPlanToStorage(digestPlan) {
-  try {
-    localStorage.setItem(DIGEST_STORAGE_KEY, JSON.stringify(digestPlan));
-  } catch {}
+async function saveSubmissionsToStorage(submissions, scopeId) {
+  await writeStorageJson(getScopedStorageKey(SUBMISSION_STORAGE_KEY, scopeId), submissions);
 }
 
-async function loadMonitorItemsFromStorage() {
-  try {
-    const raw = localStorage.getItem(MONITOR_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+async function loadDigestPlanFromStorage(scopeId) {
+  return readStorageJson(getScopedStorageKey(DIGEST_STORAGE_KEY, scopeId), {});
 }
 
-async function saveMonitorItemsToStorage(items) {
-  try {
-    localStorage.setItem(MONITOR_STORAGE_KEY, JSON.stringify(items));
-  } catch {}
+async function saveDigestPlanToStorage(digestPlan, scopeId) {
+  await writeStorageJson(getScopedStorageKey(DIGEST_STORAGE_KEY, scopeId), digestPlan);
 }
 
-async function loadMonitorSnapshotsFromStorage() {
-  try {
-    const raw = localStorage.getItem(MONITOR_SNAPSHOTS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+async function loadMonitorItemsFromStorage(scopeId) {
+  return readStorageJson(getScopedStorageKey(MONITOR_STORAGE_KEY, scopeId), []);
 }
 
-async function saveMonitorSnapshotsToStorage(items) {
-  try {
-    localStorage.setItem(MONITOR_SNAPSHOTS_STORAGE_KEY, JSON.stringify(items));
-  } catch {}
+async function saveMonitorItemsToStorage(items, scopeId) {
+  await writeStorageJson(getScopedStorageKey(MONITOR_STORAGE_KEY, scopeId), items);
 }
 
-async function loadArtifactsFromStorage() {
-  try {
-    const raw = localStorage.getItem(ARTIFACT_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+async function loadMonitorSnapshotsFromStorage(scopeId) {
+  return readStorageJson(getScopedStorageKey(MONITOR_SNAPSHOTS_STORAGE_KEY, scopeId), []);
 }
 
-async function saveArtifactsToStorage(items) {
-  try {
-    localStorage.setItem(ARTIFACT_STORAGE_KEY, JSON.stringify(items));
-  } catch {}
+async function saveMonitorSnapshotsToStorage(items, scopeId) {
+  await writeStorageJson(getScopedStorageKey(MONITOR_SNAPSHOTS_STORAGE_KEY, scopeId), items);
 }
 
-async function loadWatchlistFromStorage() {
-  try {
-    const raw = localStorage.getItem(WATCHLIST_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+async function loadMonitorSettingsFromStorage(scopeId) {
+  const parsed = await readStorageJson(getScopedStorageKey(MONITOR_SETTINGS_STORAGE_KEY, scopeId), { profile: "balanced" });
+  return parsed && typeof parsed === "object"
+    ? { profile: typeof parsed.profile === "string" ? parsed.profile : "balanced" }
+    : { profile: "balanced" };
 }
 
-async function saveWatchlistToStorage(items) {
-  try {
-    localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(items));
-  } catch {}
+async function saveMonitorSettingsToStorage(settings, scopeId) {
+  await writeStorageJson(getScopedStorageKey(MONITOR_SETTINGS_STORAGE_KEY, scopeId), settings);
+}
+
+async function loadArtifactsFromStorage(scopeId) {
+  return readStorageJson(getScopedStorageKey(ARTIFACT_STORAGE_KEY, scopeId), []);
+}
+
+async function saveArtifactsToStorage(items, scopeId) {
+  await writeStorageJson(getScopedStorageKey(ARTIFACT_STORAGE_KEY, scopeId), items);
+}
+
+async function loadWatchlistFromStorage(scopeId) {
+  return readStorageJson(getScopedStorageKey(WATCHLIST_STORAGE_KEY, scopeId), []);
+}
+
+async function saveWatchlistToStorage(items, scopeId) {
+  await writeStorageJson(getScopedStorageKey(WATCHLIST_STORAGE_KEY, scopeId), items);
+}
+
+async function loadWorkspaceFromStorage(scopeId) {
+  const raw = await readStorageJson(getScopedStorageKey(WORKSPACE_STORAGE_KEY, scopeId), DEFAULT_WORKSPACE);
+  return raw ? { ...DEFAULT_WORKSPACE, ...raw } : DEFAULT_WORKSPACE;
+}
+
+async function saveWorkspaceToStorage(workspace, scopeId) {
+  await writeStorageJson(getScopedStorageKey(WORKSPACE_STORAGE_KEY, scopeId), workspace);
+}
+
+async function loadUsageFromStorage(scopeId) {
+  const parsed = await readStorageJson(getScopedStorageKey(USAGE_STORAGE_KEY, scopeId), {});
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+
+async function saveUsageToStorage(usage, scopeId) {
+  await writeStorageJson(getScopedStorageKey(USAGE_STORAGE_KEY, scopeId), usage);
+}
+
+async function loadAccountsFromStorage() {
+  const accounts = await readStorageJson(ACCOUNT_STORAGE_KEY, [DEFAULT_ACCOUNT]);
+  return Array.isArray(accounts) && accounts.length ? accounts : [DEFAULT_ACCOUNT];
+}
+
+async function saveAccountsToStorage(accounts) {
+  await writeStorageJson(ACCOUNT_STORAGE_KEY, accounts);
+}
+
+async function loadSessionFromStorage() {
+  const session = await readStorageJson(SESSION_STORAGE_KEY, null);
+  return session?.accountId || DEFAULT_ACCOUNT.id;
+}
+
+async function saveSessionToStorage(accountId) {
+  await writeStorageJson(SESSION_STORAGE_KEY, { accountId });
 }
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function getPlanConfig(plan) {
+  return PLAN_CONFIG[plan] || PLAN_CONFIG.free;
+}
+
+function getMonitorProfileOption(profileId) {
+  return MONITOR_PROFILE_OPTIONS.find((item) => item.id === profileId) || MONITOR_PROFILE_OPTIONS[0];
+}
+
+function normalizeOperatorRole(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  return OPERATOR_ROLE_ORDER.includes(normalized) ? normalized : "viewer";
+}
+
+function hasOperatorRoleAtLeast(role, minimumRole) {
+  return OPERATOR_ROLE_ORDER.indexOf(normalizeOperatorRole(role)) >= OPERATOR_ROLE_ORDER.indexOf(normalizeOperatorRole(minimumRole));
+}
+
+function defaultFeaturedRationale(item) {
+  const reasons = [];
+  if (Array.isArray(item?.theme_groups) && item.theme_groups.length > 0) {
+    reasons.push(`matches ${item.theme_groups.join(" / ")}`);
+  }
+  if (Number(item?.novelty_hint || 0) >= 6) {
+    reasons.push("shows a stronger novelty signal");
+  }
+  if (item?.source) {
+    reasons.push(`comes from ${item.source}`);
+  }
+  return reasons.slice(0, 3);
+}
+
+function deriveMonitorDecisionFromItems(items) {
+  const ranked = [...(Array.isArray(items) ? items : [])]
+    .sort((a, b) => (Number(b?.featured_candidate_score ?? b?.editorial_score ?? 0) - Number(a?.featured_candidate_score ?? a?.editorial_score ?? 0)) || Number(b?.editorial_score ?? 0) - Number(a?.editorial_score ?? 0));
+
+  const shortlist = ranked.slice(0, 5).map((item, index) => ({
+    ...item,
+    featured_rank: item?.featured_rank || index + 1,
+    featured_status: index === 0 ? "best-pick" : "shortlist",
+    featured_rationale: Array.isArray(item?.featured_rationale) && item.featured_rationale.length ? item.featured_rationale : defaultFeaturedRationale(item),
+  }));
+
+  return {
+    shortlist,
+    bestPick: shortlist[0] || null,
+  };
+}
+
+function syncMonitorDecisionWithItems(items, bestPick, shortlist) {
+  const byId = new Map((items || []).map((item) => [item.id, item]));
+  const syncOne = (item) => {
+    if (!item) return null;
+    const fresh = byId.get(item.id);
+    return fresh ? { ...item, ...fresh } : item;
+  };
+
+  return {
+    bestPick: syncOne(bestPick),
+    shortlist: (shortlist || []).map(syncOne).filter(Boolean),
+  };
+}
+
+function getUsageForToday(usage, key) {
+  return Number(usage?.[todayKey()]?.[key] || 0);
+}
+
+function getRemainingForAction(plan, usage, key) {
+  const limit = getPlanConfig(plan).limits[key];
+  if (limit == null) return null;
+  return Math.max(0, limit - getUsageForToday(usage, key));
+}
+
+function formatLimitMessage(plan, action) {
+  const cfg = getPlanConfig(plan);
+  const limit = cfg.limits[action];
+  const label = action === "monitor" ? "monitor sweeps" : action;
+  if (limit == null) return "";
+  return `${cfg.label} plan limit reached for ${label} today. Upgrade the workspace plan to continue.`;
 }
 
 function scoreLocalDailyCandidate(entry) {
@@ -253,12 +453,208 @@ function resolveFeaturedSelection(entries, remoteFeatured, remoteFeaturedMeta, d
   };
 }
 
+function WorkspacePanel({ workspace, usage, setWorkspace, onResetUsage, scopeId }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const planCfg = getPlanConfig(workspace.plan);
+
+  function updateWorkspace(patch) {
+    setWorkspace((prev) => {
+      const next = { ...prev, ...patch };
+      saveWorkspaceToStorage(next, scopeId);
+      return next;
+    });
+  }
+
+  const usageRows = [
+    { key: "launch", label: "Launch" },
+    { key: "gut-check", label: "Gut-check" },
+    { key: "bull", label: "Bull" },
+    { key: "monitor", label: "Monitor" },
+  ];
+
+  return (
+    <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "14px 14px 12px", minWidth: 280, maxWidth: collapsed ? 360 : 480, width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: collapsed ? 0 : 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <SectionLabel>Workspace plan</SectionLabel>
+          <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: UI_COLORS.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {workspace.operatorName} / {planCfg.label}
+          </div>
+        </div>
+        <button onClick={() => setCollapsed((value) => !value)} style={{ background: "transparent", border: `1px solid ${UI_COLORS.border}`, color: "#f1ebe5", padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.14em", flexShrink: 0 }}>
+          {collapsed ? "Expand" : "Collapse"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ display: "grid", gap: 12 }}>
+          <input value={workspace.operatorName} onChange={(event) => updateWorkspace({ operatorName: event.target.value || DEFAULT_WORKSPACE.operatorName })} placeholder="Workspace name" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
+            {Object.entries(PLAN_CONFIG).map(([key, cfg]) => {
+              const active = workspace.plan === key;
+              return (
+                <button key={key} onClick={() => updateWorkspace({ plan: key })} style={{ background: active ? "rgba(255,255,255,0.08)" : "transparent", border: `1px solid ${active ? cfg.accent : "rgba(255,255,255,0.08)"}`, color: active ? "#fff" : UI_COLORS.textSoft, padding: "10px 8px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                  {cfg.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: UI_COLORS.textMuted }}>
+            {planCfg.description}
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {usageRows.map((item) => {
+              const limit = planCfg.limits[item.key];
+              const used = getUsageForToday(usage, item.key);
+              const remaining = getRemainingForAction(workspace.plan, usage, item.key);
+              return (
+                <div key={item.key} style={{ display: "flex", justifyContent: "space-between", gap: 12, border: "1px solid rgba(255,255,255,0.06)", padding: "8px 10px" }}>
+                  <span style={{ fontFamily: "monospace", fontSize: 9, color: "#fff", letterSpacing: "0.12em", textTransform: "uppercase" }}>{item.label}</span>
+                  <span style={{ fontFamily: "monospace", fontSize: 9, color: UI_COLORS.textMuted }}>
+                    {limit == null ? `${used} used / unlimited` : `${used} used / ${remaining} left`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {planCfg.perks.map((perk) => (
+              <span key={perk} style={{ border: "1px solid rgba(255,255,255,0.08)", padding: "6px 8px", fontFamily: "monospace", fontSize: 8, color: UI_COLORS.textMuted, textTransform: "uppercase", letterSpacing: "0.12em" }}>
+                {perk}
+              </span>
+            ))}
+          </div>
+          <button onClick={onResetUsage} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: UI_COLORS.textSoft, padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+            Reset today's usage
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccountPanel({ accounts, activeAccountId, setActiveAccountId, onCreateAccount }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const [draft, setDraft] = useState({ name: "", email: "" });
+  const activeAccount = accounts.find((item) => item.id === activeAccountId) || accounts[0] || DEFAULT_ACCOUNT;
+
+  async function createLocalAccount() {
+    const name = draft.name.trim();
+    const email = draft.email.trim().toLowerCase();
+    if (!name || !email) return;
+    await onCreateAccount({ name, email });
+    setDraft({ name: "", email: "" });
+  }
+
+  return (
+    <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "14px 14px 12px", minWidth: 280, maxWidth: collapsed ? 360 : 480, width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: collapsed ? 0 : 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <SectionLabel>Account</SectionLabel>
+          <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: UI_COLORS.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {activeAccount?.name} / {activeAccount?.email}
+          </div>
+        </div>
+        <button onClick={() => setCollapsed((value) => !value)} style={{ background: "transparent", border: `1px solid ${UI_COLORS.border}`, color: "#f1ebe5", padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.14em", flexShrink: 0 }}>
+          {collapsed ? "Expand" : "Collapse"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ display: "grid", gap: 12 }}>
+          <select value={activeAccountId} onChange={(event) => setActiveAccountId(event.target.value)} style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }}>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>{account.name} / {account.email}</option>
+            ))}
+          </select>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <input value={draft.name} onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))} placeholder="New account name" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
+            <input value={draft.email} onChange={(event) => setDraft((prev) => ({ ...prev, email: event.target.value }))} placeholder="email@example.com" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
+          </div>
+          <button onClick={createLocalAccount} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: UI_COLORS.textSoft, padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+            Create local account
+          </button>
+          <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: UI_COLORS.textMuted }}>
+            Local accounts separate workspace plan, usage, artifacts, watchlist, monitor snapshots, and draft state by user in this browser. This is the bridge to real auth later.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OperatorAuthPanel({ authState, draft, setDraft, loading, onLogin, onLogout, onRefresh }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const authenticated = Boolean(authState?.authenticated);
+
+  return (
+    <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "14px 14px 12px", minWidth: 280, maxWidth: collapsed ? 420 : 520, width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: collapsed ? 0 : 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <SectionLabel>Operator auth</SectionLabel>
+          <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: authenticated ? "rgba(121,217,199,0.76)" : UI_COLORS.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {authenticated
+              ? `${authState?.session?.email || "operator"} / ${authState?.session?.role || "admin"}`
+              : authState?.configured
+                ? "Password session login available"
+                : "Password login not configured on server"}
+          </div>
+        </div>
+        <button onClick={() => setCollapsed((value) => !value)} style={{ background: "transparent", border: `1px solid ${UI_COLORS.border}`, color: "#f1ebe5", padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.14em", flexShrink: 0 }}>
+          {collapsed ? "Expand" : "Collapse"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ display: "grid", gap: 10 }}>
+          {authenticated ? (
+            <>
+              <div style={{ border: "1px solid rgba(121,217,199,0.18)", background: "rgba(121,217,199,0.06)", padding: "12px 10px", fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(121,217,199,0.82)" }}>
+                Signed in as {authState?.session?.email || "operator"}.
+                {authState?.session?.expires_at ? ` Session expires ${new Date(authState.session.expires_at).toLocaleString("en-US")}.` : ""}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={onRefresh} disabled={loading} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: UI_COLORS.textSoft, padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+                  Refresh session
+                </button>
+                <button onClick={onLogout} disabled={loading} style={{ background: "transparent", border: "1px solid rgba(244,90,67,0.18)", color: "rgba(244,90,67,0.82)", padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+                  Sign out
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <input value={draft.email} onChange={(event) => setDraft((prev) => ({ ...prev, email: event.target.value }))} placeholder="operator@example.com" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
+              <input type="password" value={draft.password} onChange={(event) => setDraft((prev) => ({ ...prev, password: event.target.value }))} placeholder="Operator password" autoComplete="current-password" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={onLogin} disabled={loading || !draft.email.trim() || !draft.password} style={{ background: authState?.configured ? "#f45a43" : "rgba(255,255,255,0.05)", border: "none", color: authState?.configured ? "#fff" : "rgba(255,255,255,0.18)", padding: "10px 14px", cursor: authState?.configured ? "pointer" : "not-allowed", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+                  {loading ? "Signing in..." : "Sign in"}
+                </button>
+                <button onClick={onRefresh} disabled={loading} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: UI_COLORS.textSoft, padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+                  Refresh status
+                </button>
+              </div>
+              <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: authState?.configured ? UI_COLORS.textMuted : "rgba(244,90,67,0.78)" }}>
+                {authState?.configured
+                  ? "Preferred path for moderation is an operator session. The manual moderation token remains as a fallback during transition."
+                  : "Set AUTH_SESSION_SECRET plus OPERATOR_EMAIL and OPERATOR_PASSWORD or OPERATOR_PASSWORD_HASH on the server to enable operator login."}
+              </div>
+            </>
+          )}
+          {authState?.error && (
+            <div style={{ border: "1px solid rgba(244,90,67,0.18)", background: "rgba(244,90,67,0.06)", padding: "12px 10px", fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(244,90,67,0.82)" }}>
+              {authState.error}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 async function loadEntriesFromApi() {
   const response = await fetch("/api/entries");
   const payload = await readJsonResponse(response, "Entries endpoint returned an invalid response.");
 
   if (!response.ok) {
-    throw new Error(payload?.error || "Could not load the shared archive.");
+    throw buildHttpError(response.status, payload?.error || "Could not load the shared archive.");
   }
 
   return payload;
@@ -267,13 +663,14 @@ async function loadEntriesFromApi() {
 async function createEntryOnApi(entry) {
   const response = await fetch("/api/entries", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    headers: buildModerationHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ entry }),
   });
   const payload = await readJsonResponse(response, "Entries write returned an invalid response.");
 
   if (!response.ok) {
-    throw new Error(payload?.error || "Could not persist this entry.");
+    throw buildHttpError(response.status, payload?.error || "Could not persist this entry.");
   }
 
   return payload.entry;
@@ -288,18 +685,21 @@ async function createSubmissionOnApi(submission) {
   const payload = await readJsonResponse(response, "Submission endpoint returned an invalid response.");
 
   if (!response.ok) {
-    throw new Error(payload?.error || "Could not submit this project.");
+    throw buildHttpError(response.status, payload?.error || "Could not submit this project.");
   }
 
   return payload.submission;
 }
 
 async function loadSubmissionsFromApi() {
-  const response = await fetch("/api/submissions");
+  const response = await fetch("/api/submissions", {
+    credentials: "same-origin",
+    headers: buildModerationHeaders(),
+  });
   const payload = await readJsonResponse(response, "Submissions endpoint returned an invalid response.");
 
   if (!response.ok) {
-    throw new Error(payload?.error || "Could not load submissions.");
+    throw buildHttpError(response.status, payload?.error || "Could not load submissions.");
   }
 
   return payload;
@@ -308,20 +708,80 @@ async function loadSubmissionsFromApi() {
 async function updateSubmissionOnApi(id, patch) {
   const response = await fetch("/api/submissions", {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    headers: buildModerationHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ id, ...patch }),
   });
   const payload = await readJsonResponse(response, "Submission update returned an invalid response.");
 
   if (!response.ok) {
-    throw new Error(payload?.error || "Could not update submission.");
+    throw buildHttpError(response.status, payload?.error || "Could not update submission.");
   }
 
   return payload.submission;
 }
 
-async function runRealMonitorSweep() {
-  const response = await fetch("/api/monitor");
+async function loadOperatorSessionFromApi() {
+  const response = await fetch("/api/auth/session", {
+    credentials: "same-origin",
+  });
+  const payload = await readJsonResponse(response, "Auth session endpoint returned an invalid response.");
+
+  if (!response.ok) {
+    throw buildHttpError(response.status, payload?.error || "Could not load operator session.");
+  }
+
+  return payload;
+}
+
+async function loginOperatorOnApi(email, password) {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const payload = await readJsonResponse(response, "Auth login endpoint returned an invalid response.");
+
+  if (!response.ok) {
+    throw buildHttpError(response.status, payload?.error || "Could not sign in.");
+  }
+
+  return payload;
+}
+
+async function logoutOperatorOnApi() {
+  const response = await fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const payload = await readJsonResponse(response, "Auth logout endpoint returned an invalid response.");
+
+  if (!response.ok) {
+    throw buildHttpError(response.status, payload?.error || "Could not sign out.");
+  }
+
+  return payload;
+}
+
+async function loadAuditLogsFromApi(limit = 12) {
+  const response = await fetch(`/api/audit-logs?limit=${encodeURIComponent(String(limit))}`, {
+    credentials: "same-origin",
+    headers: buildModerationHeaders(),
+  });
+  const payload = await readJsonResponse(response, "Audit logs endpoint returned an invalid response.");
+
+  if (!response.ok) {
+    throw buildHttpError(response.status, payload?.error || "Could not load audit logs.");
+  }
+
+  return payload;
+}
+
+async function runRealMonitorSweep(profile = "balanced") {
+  const response = await fetch(`/api/monitor?profile=${encodeURIComponent(profile)}`);
   const payload = await readJsonResponse(response, "Monitor endpoint returned an invalid response.");
 
   if (!response.ok) {
@@ -354,7 +814,43 @@ function buildEntryFromSubmission(submission) {
   };
 }
 
-function buildMockMonitorSweep(date = new Date()) {
+function buildEntryFromMonitorItem(item, profile = "balanced") {
+  const rawCategory = typeof item?.category_hint === "string" ? item.category_hint.trim().toLowerCase() : "";
+  const category =
+    rawCategory === "agent"
+      ? "agent"
+      : rawCategory === "tool" || rawCategory === "security"
+        ? "tool"
+        : rawCategory === "framework"
+          ? "framework"
+          : rawCategory === "infra"
+            ? "infra"
+            : rawCategory === "web3"
+              ? "app"
+              : "other";
+
+  const noveltyScore = Math.max(3, Math.min(10, Math.round((Number(item?.novelty_hint || 0) + Math.min(10, Number(item?.monitor_relevance || 0) / 2)) / 2)));
+  const noveltyVerdict = noveltyScore >= 8 ? "Genuinely New" : noveltyScore >= 5 ? "Solid Execution" : "Repackaged";
+  const rationale = Array.isArray(item?.featured_rationale) && item.featured_rationale.length ? item.featured_rationale.join("; ") : String(item?.signal_reason || "");
+  const profileLabel = getMonitorProfileOption(profile).label;
+
+  return {
+    project_name: item?.project_name || "Untitled discovery",
+    one_liner: String(item?.summary || "").slice(0, 220) || "Discovery promoted from the monitor pipeline.",
+    what_it_does: item?.summary || "Discovery promoted from the monitor pipeline.",
+    who_built_it: item?.author ? `${item.author} via ${item.source}` : item?.source || "Monitor pipeline",
+    category,
+    tech_stack: [item?.source || "monitor", item?.source_type || "candidate", ...(Array.isArray(item?.theme_groups) ? item.theme_groups.slice(0, 3) : [])].filter(Boolean),
+    novelty_score: noveltyScore,
+    novelty_verdict: noveltyVerdict,
+    novelty_reasoning: rationale || "Promoted from the monitor shortlist before a full editorial profile.",
+    hook: item?.summary || "Discovery promoted from the current sweep.",
+    missing: "Still needs full editorial profile, market comparison writeup, and manual verification before publication automation.",
+    editorial_note: `Promoted from the ${profileLabel} monitor sweep. Source: ${item?.source || "monitor"}. ${rationale || ""}`.trim(),
+  };
+}
+
+function buildMockMonitorSweep(date = new Date(), profile = "balanced") {
   const day = Number(date.toISOString().slice(8, 10));
   const candidates = [
     {
@@ -366,6 +862,12 @@ function buildMockMonitorSweep(date = new Date()) {
       url: "https://x.com/agentlaunches/status/mock-penstagent",
       summary: "An agent that audits vibe-coded sites for auth flaws, secret leaks, weak headers, and missing validation before launch.",
       signal_reason: "Fits the current agent + security narrative and maps directly to builder pain.",
+      theme_groups: ["agents", "security"],
+      theme_matches: ["agent", "pentest", "security"],
+      monitor_relevance: 24,
+      editorial_score: 88,
+      featured_candidate_score: 116,
+      featured_rationale: ["hits the primary sweep thesis", "shows a stronger novelty signal than the rest of the sweep", "has active social/community evidence in the target niche"],
     },
     {
       source: "GitHub Trending",
@@ -376,6 +878,12 @@ function buildMockMonitorSweep(date = new Date()) {
       url: "https://github.com/open-launch-labs/shipscope",
       summary: "CLI that turns a README and changelog into launch copy, screenshots prompts, and proof checklists.",
       signal_reason: "Clear HOW lane candidate with legible monetization path.",
+      theme_groups: ["agents", "llms"],
+      theme_matches: ["agentic", "workflow", "launch"],
+      monitor_relevance: 18,
+      editorial_score: 76,
+      featured_candidate_score: 104,
+      featured_rationale: ["fits the balanced profile", "comes from a source with stronger build or research signal", "is recent enough to matter in the current cycle"],
     },
     {
       source: "Product Hunt",
@@ -386,6 +894,12 @@ function buildMockMonitorSweep(date = new Date()) {
       url: "https://www.producthunt.com/posts/trendglass",
       summary: "Dashboard that tracks memecoin narratives, KOL mentions, and token launch copy patterns in one place.",
       signal_reason: "Potentially strong web3-native audience fit but likely crowded.",
+      theme_groups: ["web3"],
+      theme_matches: ["memecoin", "token", "wallet"],
+      monitor_relevance: 20,
+      editorial_score: 72,
+      featured_candidate_score: 96,
+      featured_rationale: ["hits the primary web3 thesis", "has enough novelty to justify editorial attention", "is recent enough to matter in the current cycle"],
     },
     {
       source: "Reddit",
@@ -396,6 +910,12 @@ function buildMockMonitorSweep(date = new Date()) {
       url: "https://reddit.com/r/LocalLLaMA/mock-flowmesh",
       summary: "An open orchestration layer for local agents that routes tasks between Ollama models based on context and latency.",
       signal_reason: "Good match for agent infrastructure interest with open-source leverage.",
+      theme_groups: ["agents", "llms"],
+      theme_matches: ["agent", "ollama", "routing"],
+      monitor_relevance: 22,
+      editorial_score: 81,
+      featured_candidate_score: 108,
+      featured_rationale: ["fits the agent-first profile", "has active social/community evidence in the target niche", "is recent enough to matter in the current cycle"],
     },
     {
       source: "GitHub Trending",
@@ -406,18 +926,36 @@ function buildMockMonitorSweep(date = new Date()) {
       url: "https://github.com/cryptotools/memeproof",
       summary: "Static analyzer for token launch sites that checks wallet-drain vectors, signer misuse, and unsafe contract embeds.",
       signal_reason: "Strong overlap with crypto trust and launch infrastructure.",
+      theme_groups: ["security", "web3"],
+      theme_matches: ["token", "wallet", "security"],
+      monitor_relevance: 23,
+      editorial_score: 86,
+      featured_candidate_score: 114,
+      featured_rationale: ["hits the primary security thesis", "comes from a source with stronger build or research signal", "is recent enough to matter in the current cycle"],
     },
   ];
 
+  const focusThemes = getMonitorProfileOption(profile).id === "balanced"
+    ? []
+    : getMonitorProfileOption(profile).id === "agent-first"
+      ? ["agents", "llms"]
+      : getMonitorProfileOption(profile).id === "security-first"
+        ? ["security", "agents", "llms"]
+        : getMonitorProfileOption(profile).id === "web3-first"
+          ? ["web3", "agents"]
+          : ["llms", "agents"];
+
   return candidates
+    .filter((item) => focusThemes.length === 0 || (item.theme_groups || []).some((group) => focusThemes.includes(group)))
     .map((item, index) => ({
       id: `${todayKey()}-${index}`,
       detected_at: date.toISOString(),
-      novelty_hint: (day + index) % 10,
+      novelty_hint: item.novelty_hint ?? (day + index) % 10,
       queue_status: "new",
+      query: `mock:${profile}`,
       ...item,
     }))
-    .sort((a, b) => b.novelty_hint - a.novelty_hint);
+    .sort((a, b) => (b.editorial_score ?? 0) - (a.editorial_score ?? 0) || b.novelty_hint - a.novelty_hint);
 }
 
 function loadProviderSettings() {
@@ -434,6 +972,32 @@ function saveProviderSettings(settings) {
   try {
     localStorage.setItem(PROVIDER_STORAGE_KEY, JSON.stringify(settings));
   } catch {}
+}
+
+function getModerationToken() {
+  return String(loadProviderSettings().moderationToken || "").trim();
+}
+
+function buildModerationHeaders(baseHeaders = {}) {
+  const token = getModerationToken();
+  if (!token) {
+    return baseHeaders;
+  }
+
+  return {
+    ...baseHeaders,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+function buildHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function isProtectedRouteFailure(error) {
+  return Boolean(error && typeof error === "object" && [401, 403, 503].includes(Number(error.statusCode)));
 }
 
 async function readJsonResponse(response, fallbackMessage) {
@@ -576,7 +1140,7 @@ function Chip({ label, color, bg, border }) {
   );
 }
 
-function SectionLabel({ children, color = "rgba(255,255,255,0.18)" }) {
+function SectionLabel({ children, color = UI_COLORS.label }) {
   return (
     <div style={{ fontFamily: "monospace", fontSize: 8, color, letterSpacing: "0.22em", textTransform: "uppercase", marginBottom: 12 }}>
       {children}
@@ -588,10 +1152,10 @@ function NoveltyBar({ score }) {
   const color = score >= 7 ? "#f45a43" : score >= 4 ? "#66a3ff" : "#6e7785";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <div style={{ flex: 1, height: 3, background: "rgba(255,255,255,0.06)" }}>
+      <div style={{ flex: 1, height: 3, background: UI_COLORS.panelStrong }}>
         <div style={{ height: "100%", width: `${score * 10}%`, background: color }} />
       </div>
-      <span style={{ fontFamily: "monospace", fontSize: 11, color: "rgba(255,255,255,0.24)", minWidth: 32, textAlign: "right" }}>{score}/10</span>
+      <span style={{ fontFamily: "monospace", fontSize: 11, color: UI_COLORS.textMuted, minWidth: 32, textAlign: "right" }}>{score}/10</span>
     </div>
   );
 }
@@ -609,9 +1173,9 @@ function HeroMetrics({ entries }) {
         ["Agent launches", agentCount, "#79d9c7"],
         ["Actually new", genuine, "#66a3ff"],
       ].map(([label, value, color]) => (
-        <div key={label} style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "16px 14px" }}>
+        <div key={label} style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "16px 14px" }}>
           <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 30, letterSpacing: "0.04em", lineHeight: 1, color }}>{value}</div>
-          <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.18)", letterSpacing: "0.18em", textTransform: "uppercase" }}>{label}</div>
+          <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 8, color: UI_COLORS.label, letterSpacing: "0.18em", textTransform: "uppercase" }}>{label}</div>
         </div>
       ))}
     </div>
@@ -692,7 +1256,7 @@ function FeaturedCard({ entry, featuredMeta }) {
 
 function FeedList({ entries, onSelect }) {
   return (
-    <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.015)" }}>
+    <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel }}>
       {entries.map((entry) => {
         const verdict = VERDICT_CFG[entry.novelty_verdict] || VERDICT_CFG["Solid Execution"];
         const category = CAT_CFG[entry.category] || CAT_CFG.other;
@@ -701,7 +1265,7 @@ function FeedList({ entries, onSelect }) {
           <button
             key={entry.id}
             onClick={() => onSelect(entry)}
-            style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.05)", padding: "16px 18px", cursor: "pointer" }}
+            style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: `1px solid ${UI_COLORS.border}`, padding: "16px 18px", cursor: "pointer" }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
               <div>
@@ -712,13 +1276,13 @@ function FeedList({ entries, onSelect }) {
                 <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 22, lineHeight: 1, letterSpacing: "0.04em", color: "#fff", textTransform: "uppercase", marginBottom: 4 }}>
                   {entry.project_name}
                 </div>
-                <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.6, color: "rgba(255,255,255,0.22)", maxWidth: 560 }}>
+                <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.6, color: UI_COLORS.textMuted, maxWidth: 560 }}>
                   {entry.one_liner}
                 </div>
               </div>
               <div style={{ minWidth: 60, textAlign: "right" }}>
                 <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 30, lineHeight: 1, color: verdict.color }}>{entry.novelty_score}</div>
-                <div style={{ fontFamily: "monospace", fontSize: 7, color: "rgba(255,255,255,0.14)", letterSpacing: "0.16em" }}>NOVELTY</div>
+                <div style={{ fontFamily: "monospace", fontSize: 7, color: UI_COLORS.label, letterSpacing: "0.16em" }}>NOVELTY</div>
               </div>
             </div>
           </button>
@@ -732,12 +1296,12 @@ function ProductRail({ setView }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 16 }}>
       {PRODUCT_PILLARS.map((pillar) => (
-        <div key={pillar.id} style={{ border: "1px solid rgba(255,255,255,0.06)", background: "linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))", padding: "18px 16px" }}>
-          <SectionLabel color={pillar.label === "Bull" ? "#f45a43" : "rgba(255,255,255,0.2)"}>{pillar.label}</SectionLabel>
+        <div key={pillar.id} style={{ border: `1px solid ${UI_COLORS.border}`, background: "linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))", padding: "18px 16px" }}>
+          <SectionLabel color={pillar.label === "Bull" ? "#f45a43" : UI_COLORS.label}>{pillar.label}</SectionLabel>
           <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 26, lineHeight: 1, letterSpacing: "0.04em", textTransform: "uppercase", color: "#fff", marginBottom: 10 }}>
             {pillar.title}
           </div>
-          <p style={{ margin: 0, fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+          <p style={{ margin: 0, fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: UI_COLORS.textMuted }}>
             {pillar.body}
           </p>
           <button
@@ -748,7 +1312,7 @@ function ProductRail({ setView }) {
               else if (pillar.id === "monitor") setView("monitor");
               else setView("digest");
             }}
-            style={{ marginTop: 14, background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.66)", padding: "8px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase" }}
+            style={{ marginTop: 14, background: "transparent", border: `1px solid ${UI_COLORS.border}`, color: UI_COLORS.textSoft, padding: "8px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase" }}
           >
             Open lane
           </button>
@@ -764,11 +1328,11 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
 
   return (
     <div style={{ display: "grid", gap: 34 }}>
-      <section style={{ position: "relative", overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)", background: "radial-gradient(circle at top left,rgba(102,163,255,0.10),transparent 32%), radial-gradient(circle at bottom right,rgba(244,90,67,0.12),transparent 30%), linear-gradient(180deg,#070b13 0%,#080a11 100%)", padding: "34px 30px 28px" }}>
+      <section style={{ position: "relative", overflow: "hidden", border: `1px solid ${UI_COLORS.border}`, background: "radial-gradient(circle at top left,rgba(102,163,255,0.16),transparent 34%), radial-gradient(circle at bottom right,rgba(244,90,67,0.16),transparent 32%), linear-gradient(180deg,#0a0f18 0%,#0a0d14 100%)", padding: "34px 30px 28px" }}>
         <Beam />
         <div style={{ position: "relative", zIndex: 1, display: "grid", gridTemplateColumns: "minmax(0,1.25fr) minmax(280px,0.8fr)", gap: 24 }}>
           <div>
-            <SectionLabel color="rgba(244,90,67,0.68)">Introducing / batch one / editorial core</SectionLabel>
+            <SectionLabel color="rgba(244,90,67,0.82)">Introducing / batch one / editorial core</SectionLabel>
             <h1 style={{ margin: 0, fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: "clamp(58px,9vw,110px)", lineHeight: 0.86, letterSpacing: "0.03em", textTransform: "uppercase", color: "#fff8f1" }}>
               The launch
               <br />
@@ -783,23 +1347,23 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
               <button onClick={() => setView("launch")} style={{ background: "#f45a43", border: "none", color: "#fff", padding: "12px 22px", cursor: "pointer", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 17, letterSpacing: "0.1em" }}>
                 Open Launch Toolkit
               </button>
-              <button onClick={() => setView("bull")} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.74)", padding: "12px 18px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+              <button onClick={() => setView("bull")} style={{ background: "transparent", border: `1px solid ${UI_COLORS.border}`, color: "#f4efe9", padding: "12px 18px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
                 Rate the hype
               </button>
             </div>
           </div>
           <div>
             <SectionLabel color="#66a3ff">Business spine</SectionLabel>
-            <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.025)", padding: "16px" }}>
+            <div style={{ border: `1px solid ${UI_COLORS.border}`, background: "rgba(255,255,255,0.05)", padding: "16px" }}>
               <div style={{ display: "grid", gap: 12 }}>
                 {[
                   ["Audience", "Daily launch intelligence for agent-native builders and operators."],
                   ["Monetization", "Toolkit surfaces convert the editorial audience into builder demand."],
                   ["Distribution", "Bull detector and launch rewrites create inherently shareable outputs."],
                 ].map(([title, copy]) => (
-                  <div key={title} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: 12 }}>
-                    <div style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.18)", letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>{title}</div>
-                    <div style={{ fontFamily: "monospace", fontSize: 11, color: "rgba(255,255,255,0.3)", lineHeight: 1.7 }}>{copy}</div>
+                  <div key={title} style={{ borderBottom: `1px solid ${UI_COLORS.border}`, paddingBottom: 12 }}>
+                    <div style={{ fontFamily: "monospace", fontSize: 8, color: UI_COLORS.label, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>{title}</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 11, color: UI_COLORS.textSoft, lineHeight: 1.7 }}>{copy}</div>
                   </div>
                 ))}
               </div>
@@ -824,13 +1388,13 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
           <FeedList entries={latest} onSelect={onSelect} />
         </div>
         <div style={{ display: "grid", gap: 16 }}>
-          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
+          <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "18px 16px" }}>
             <SectionLabel color="#f45a43">Editorial thesis</SectionLabel>
             <p style={{ margin: 0, fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 22, lineHeight: 1.45, color: "rgba(255,255,255,0.74)" }}>
               The agent era needs a newsroom that can also write the launch post.
             </p>
           </div>
-          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
+          <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "18px 16px" }}>
             <SectionLabel>What ships next</SectionLabel>
             <div style={{ display: "grid", gap: 10 }}>
               {[
@@ -838,15 +1402,15 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
                 "Idea gut-check for pitch and differentiation",
                 "Submission queue feeding the archive",
               ].map((item) => (
-                <div key={item} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.26)" }}>
+                <div key={item} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: UI_COLORS.textMuted }}>
                   {item}
                 </div>
               ))}
             </div>
           </div>
-          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
+          <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "18px 16px" }}>
             <SectionLabel>Digest status</SectionLabel>
-            <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+            <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: UI_COLORS.textMuted }}>
               {isScheduled ? "Today's featured was explicitly scheduled." : "Today's featured is being auto-selected from the archive."}
             </div>
           </div>
@@ -859,7 +1423,7 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
 function ToolShell({ eyebrow, title, description, children, asideTitle, asideItems }) {
   return (
     <div style={{ display: "grid", gap: 24 }}>
-      <section style={{ border: "1px solid rgba(255,255,255,0.06)", background: "linear-gradient(180deg,#0a0d15,#090b11)", padding: "28px 24px" }}>
+      <section style={{ border: `1px solid ${UI_COLORS.border}`, background: "linear-gradient(180deg,#0f141d,#0d1118)", padding: "28px 24px" }}>
         <SectionLabel color="rgba(244,90,67,0.62)">{eyebrow}</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.15fr) 280px", gap: 22 }}>
           <div>
@@ -870,11 +1434,11 @@ function ToolShell({ eyebrow, title, description, children, asideTitle, asideIte
               {description}
             </p>
           </div>
-          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "14px 14px 12px" }}>
+          <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "14px 14px 12px" }}>
             <SectionLabel>{asideTitle}</SectionLabel>
             <div style={{ display: "grid", gap: 10 }}>
               {asideItems.map((item) => (
-                <div key={item} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+                <div key={item} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: UI_COLORS.textMuted }}>
                   {item}
                 </div>
               ))}
@@ -887,25 +1451,92 @@ function ToolShell({ eyebrow, title, description, children, asideTitle, asideIte
   );
 }
 
-function MonitorView({ items, loading, onSweep, onQueueToReview, monitorMode, monitorSources, monitorStats, snapshots, onLoadSnapshot }) {
+function MonitorView({ items, loading, onSweep, onQueueToReview, onPromoteToDigest, bestPick, shortlist, monitorMode, monitorSources, monitorStats, snapshots, onLoadSnapshot, error, monitorProfile, setMonitorProfile }) {
+  const activeProfile = getMonitorProfileOption(monitorProfile);
   return (
     <ToolShell
-      eyebrow="Source monitor / mock pipeline"
-      title="Simulate autonomous discovery before wiring real collectors."
-      description="This lane stands in for the future ingestion system. It surfaces launch candidates from mocked source sweeps, scores them for editorial interest, and lets you push them into the review queue."
+      eyebrow="Source monitor / thesis-native pipeline"
+      title="Track relevant launches, not generic internet trends."
+      description="This monitor is now tuned for the actual product thesis: agents, llms, security, crypto, memecoins, web3, and adjacent tooling. It scores candidate items for category fit before they ever reach review."
       asideTitle="Collector path"
-      asideItems={["Sweep launch-heavy sources", "Detect candidate items", "Score editorial relevance", "Queue promising discoveries for review"]}
+      asideItems={["Sweep thesis-aligned sources", "Detect niche launch candidates", "Score thematic + editorial fit", "Queue promising discoveries for review"]}
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 22 }}>
         <div style={{ display: "grid", gap: 14 }}>
           <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
-              Run a sweep of free public sources first, then fall back to mocked launch feeds only if real collection is unavailable.
+              Run a sweep of niche sources and targeted social/community feeds first. This lane is tuned for `agents`, `llms`, `security`, `web3`, `crypto`, `memecoin`, and `openclaw` signals, not broad generic trends.
             </div>
             <button onClick={onSweep} disabled={loading} style={{ background: "#f45a43", border: "none", color: "#fff", padding: "10px 16px", cursor: "pointer", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 16, letterSpacing: "0.08em" }}>
               {loading ? "SWEEPING" : "RUN SWEEP"}
             </button>
           </div>
+          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px", display: "grid", gap: 10 }}>
+            <SectionLabel>Monitor profile</SectionLabel>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {MONITOR_PROFILE_OPTIONS.map((option) => {
+                const active = option.id === monitorProfile;
+                return (
+                  <button
+                    key={option.id}
+                    onClick={() => setMonitorProfile(option.id)}
+                    style={{
+                      background: active ? "rgba(244,90,67,0.10)" : "transparent",
+                      border: `1px solid ${active ? "rgba(244,90,67,0.22)" : "rgba(255,255,255,0.08)"}`,
+                      color: active ? "#fff" : "rgba(255,255,255,0.62)",
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                      fontFamily: "monospace",
+                      fontSize: 9,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.14em",
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+              {activeProfile.description}
+            </div>
+          </div>
+          {error && <div style={{ padding: 12, border: "1px solid rgba(244,90,67,0.18)", background: "rgba(244,90,67,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(244,90,67,0.82)" }}>{error}</div>}
+
+          {bestPick && (
+            <div style={{ border: "1px solid rgba(244,90,67,0.18)", background: "rgba(244,90,67,0.08)", padding: "20px 18px", display: "grid", gap: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div>
+                  <SectionLabel color="#f45a43">Current best pick</SectionLabel>
+                  <div style={{ marginTop: 4, fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 30, lineHeight: 1, letterSpacing: "0.04em", textTransform: "uppercase", color: "#fff" }}>
+                    {bestPick.project_name}
+                  </div>
+                  <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.24)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                    {bestPick.source} | rank #{bestPick.featured_rank || 1} | featured score {bestPick.featured_candidate_score ?? "-"}
+                  </div>
+                </div>
+                <Chip label="featured-ready" color="#fff" bg="rgba(244,90,67,0.12)" border="rgba(244,90,67,0.26)" />
+              </div>
+              <div style={{ fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 21, lineHeight: 1.45, color: "rgba(255,255,255,0.78)" }}>
+                {bestPick.summary}
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {(bestPick.featured_rationale || []).map((reason) => (
+                  <div key={reason} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.34)" }}>
+                    {reason}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button onClick={() => onPromoteToDigest(bestPick)} disabled={loading || bestPick.queue_status === "featured"} style={{ background: bestPick.queue_status === "featured" ? "rgba(255,255,255,0.06)" : "#f45a43", border: "none", color: bestPick.queue_status === "featured" ? "rgba(255,255,255,0.26)" : "#fff", padding: "11px 16px", cursor: bestPick.queue_status === "featured" ? "not-allowed" : "pointer", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 16, letterSpacing: "0.08em" }}>
+                  {bestPick.queue_status === "featured" ? "FEATURED TODAY" : "PROMOTE + FEATURE TODAY"}
+                </button>
+                <button onClick={() => onQueueToReview(bestPick)} disabled={loading || bestPick.queue_status === "queued" || bestPick.queue_status === "featured"} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: bestPick.queue_status === "queued" || bestPick.queue_status === "featured" ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.72)", padding: "10px 14px", cursor: bestPick.queue_status === "queued" || bestPick.queue_status === "featured" ? "not-allowed" : "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                  {bestPick.queue_status === "queued" ? "Already in review" : bestPick.queue_status === "featured" ? "Already featured" : "Send to review"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {items.length === 0 ? (
             <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "20px 18px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "rgba(255,255,255,0.3)" }}>
@@ -919,23 +1550,47 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, monitorMode, mo
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                       <Chip label={item.source} color="#66a3ff" bg="rgba(102,163,255,0.10)" border="rgba(102,163,255,0.24)" />
                       <Chip label={item.category_hint || "other"} color="#79d9c7" bg="rgba(121,217,199,0.10)" border="rgba(121,217,199,0.24)" />
+                      {item.featured_status === "best-pick" && <Chip label="best pick" color="#fff" bg="rgba(244,90,67,0.12)" border="rgba(244,90,67,0.26)" />}
+                      {item.featured_status === "shortlist" && <Chip label={`shortlist #${item.featured_rank || "-"}`} color="#fff" bg="rgba(255,255,255,0.06)" border="rgba(255,255,255,0.14)" />}
+                      {(item.theme_groups || []).map((group) => (
+                        <Chip key={`${item.id}-${group}`} label={group} color="#f1ebe5" bg="rgba(255,255,255,0.06)" border="rgba(255,255,255,0.14)" />
+                      ))}
                     </div>
                     <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 28, lineHeight: 1, letterSpacing: "0.04em", color: "#fff", textTransform: "uppercase" }}>{item.project_name}</div>
                     <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.2)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
-                      {item.author} | {item.source_type} | novelty hint {item.novelty_hint} | editorial {item.editorial_score ?? "-"}
+                      {item.author} | {item.source_type} | relevance {item.monitor_relevance ?? "-"} | novelty {item.novelty_hint} | editorial {item.editorial_score ?? "-"} | featured {item.featured_candidate_score ?? "-"}
                     </div>
                   </div>
-                  <Chip label={item.queue_status === "queued" ? "queued" : "new"} color={item.queue_status === "queued" ? "#79d9c7" : "#fff"} bg={item.queue_status === "queued" ? "rgba(121,217,199,0.08)" : "rgba(255,255,255,0.04)"} border={item.queue_status === "queued" ? "rgba(121,217,199,0.22)" : "rgba(255,255,255,0.1)"} />
+                  <Chip label={item.queue_status === "featured" ? "featured" : item.queue_status === "queued" ? "queued" : "new"} color={item.queue_status === "featured" ? "#f45a43" : item.queue_status === "queued" ? "#79d9c7" : "#fff"} bg={item.queue_status === "featured" ? "rgba(244,90,67,0.10)" : item.queue_status === "queued" ? "rgba(121,217,199,0.08)" : "rgba(255,255,255,0.04)"} border={item.queue_status === "featured" ? "rgba(244,90,67,0.22)" : item.queue_status === "queued" ? "rgba(121,217,199,0.22)" : "rgba(255,255,255,0.1)"} />
                 </div>
                 <div style={{ fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 20, lineHeight: 1.45, color: "rgba(255,255,255,0.74)" }}>{item.summary}</div>
                 <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>{item.signal_reason}</div>
+                {Array.isArray(item.theme_matches) && item.theme_matches.length > 0 && (
+                  <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Theme matches: {item.theme_matches.join(" / ")}
+                  </div>
+                )}
+                {Array.isArray(item.featured_rationale) && item.featured_rationale.length > 0 && (
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {item.featured_rationale.map((reason) => (
+                      <div key={`${item.id}-${reason}`} style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: "rgba(255,255,255,0.30)" }}>
+                        {reason}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                   <a href={item.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", fontFamily: "monospace", fontSize: 9, color: "rgba(102,163,255,0.82)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
                     Open source item
                   </a>
-                  <button onClick={() => onQueueToReview(item)} disabled={loading || item.queue_status === "queued"} style={{ background: item.queue_status === "queued" ? "rgba(255,255,255,0.05)" : "transparent", border: "1px solid rgba(255,255,255,0.1)", color: item.queue_status === "queued" ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.72)", padding: "10px 14px", cursor: item.queue_status === "queued" ? "not-allowed" : "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
-                    {item.queue_status === "queued" ? "Already in review" : "Send to review"}
-                  </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => onPromoteToDigest(item)} disabled={loading || item.queue_status === "featured"} style={{ background: item.queue_status === "featured" ? "rgba(255,255,255,0.05)" : "rgba(244,90,67,0.12)", border: "1px solid rgba(244,90,67,0.22)", color: item.queue_status === "featured" ? "rgba(255,255,255,0.22)" : "#fff", padding: "10px 14px", cursor: item.queue_status === "featured" ? "not-allowed" : "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                      {item.queue_status === "featured" ? "Featured today" : "Feature today"}
+                    </button>
+                    <button onClick={() => onQueueToReview(item)} disabled={loading || item.queue_status === "queued" || item.queue_status === "featured"} style={{ background: item.queue_status === "queued" || item.queue_status === "featured" ? "rgba(255,255,255,0.05)" : "transparent", border: "1px solid rgba(255,255,255,0.1)", color: item.queue_status === "queued" || item.queue_status === "featured" ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.72)", padding: "10px 14px", cursor: item.queue_status === "queued" || item.queue_status === "featured" ? "not-allowed" : "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                      {item.queue_status === "queued" ? "Already in review" : item.queue_status === "featured" ? "Already featured" : "Send to review"}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))
@@ -945,6 +1600,32 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, monitorMode, mo
         <div style={{ display: "grid", gap: 16 }}>
           <ArtifactRail title="Sweep history" artifacts={snapshots} onLoad={onLoadSnapshot} />
           <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
+            <SectionLabel>Daily shortlist</SectionLabel>
+            {shortlist.length === 0 ? (
+              <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+                Run a sweep to generate shortlist candidates.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {shortlist.map((item) => (
+                  <div key={`short-${item.id}`} style={{ border: "1px solid rgba(255,255,255,0.06)", padding: "12px 10px", display: "grid", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 18, lineHeight: 1, letterSpacing: "0.04em", color: "#fff", textTransform: "uppercase" }}>
+                        #{item.featured_rank || "-"} {item.project_name}
+                      </div>
+                      <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.18)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                        {item.featured_candidate_score ?? "-"}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: "rgba(255,255,255,0.30)" }}>
+                      {(item.featured_rationale || []).join(" / ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
             <SectionLabel>Sweep stats</SectionLabel>
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
@@ -952,6 +1633,12 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, monitorMode, mo
               </div>
               <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
                 Deduped candidates: {monitorStats.deduped_count}
+              </div>
+              <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+                Active profile: {activeProfile.label}
+              </div>
+              <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+                Featured candidates: {shortlist.length}
               </div>
             </div>
           </div>
@@ -962,6 +1649,13 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, monitorMode, mo
                 { source: "GitHub", ok: false, count: 0 },
                 { source: "Hacker News", ok: false, count: 0 },
                 { source: "Reddit", ok: false, count: 0 },
+                { source: "Bluesky", ok: false, count: 0 },
+                { source: "Mastodon", ok: false, count: 0 },
+                { source: "DEV", ok: false, count: 0 },
+                { source: "npm", ok: false, count: 0 },
+                { source: "Hugging Face", ok: false, count: 0 },
+                { source: "arXiv", ok: false, count: 0 },
+                { source: "CoinGecko", ok: false, count: 0 },
               ]).map((item) => (
                 <div key={item.source} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
                   {item.source} {typeof item.count === "number" ? `| ${item.count} hits` : ""} {item.ok ? "| live" : item.error ? `| ${item.error}` : ""}
@@ -972,7 +1666,7 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, monitorMode, mo
           <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
             <SectionLabel>Why this exists</SectionLabel>
             <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
-              This is the bridge between a static website and the autonomous product vision. Current mode: {monitorMode === "real" ? "real free-source collection" : "mock fallback"}.
+              This is the bridge between a static website and the autonomous product vision. Current mode: {monitorMode === "real" ? "real niche-source collection" : "mock fallback"}. The goal is not to mirror social noise. The goal is to watch the exact ecosystems the product serves, with the current profile set to {activeProfile.label}.
             </div>
           </div>
         </div>
@@ -983,21 +1677,21 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, monitorMode, mo
 
 function ArtifactRail({ title, artifacts, onLoad }) {
   return (
-    <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
+    <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "18px 16px" }}>
       <SectionLabel>{title}</SectionLabel>
       {artifacts.length === 0 ? (
-        <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.24)" }}>
+        <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: UI_COLORS.textMuted }}>
           No saved artifacts yet.
         </div>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
           {artifacts.map((artifact) => (
-            <button key={artifact.id} onClick={() => onLoad(artifact)} style={{ textAlign: "left", background: "transparent", border: "1px solid rgba(255,255,255,0.05)", padding: "12px 10px", cursor: "pointer" }}>
+            <button key={artifact.id} onClick={() => onLoad(artifact)} style={{ textAlign: "left", background: "transparent", border: `1px solid ${UI_COLORS.border}`, padding: "12px 10px", cursor: "pointer" }}>
               <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 18, letterSpacing: "0.04em", color: "#fff", textTransform: "uppercase" }}>{artifact.label}</div>
-              <div style={{ marginTop: 4, fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.18)", letterSpacing: "0.16em", textTransform: "uppercase" }}>
+              <div style={{ marginTop: 4, fontFamily: "monospace", fontSize: 8, color: UI_COLORS.label, letterSpacing: "0.16em", textTransform: "uppercase" }}>
                 {artifact.mode} | {new Date(artifact.created_at).toLocaleDateString("en-US")}
               </div>
-              <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>{artifact.summary}</div>
+              <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: UI_COLORS.textMuted }}>{artifact.summary}</div>
             </button>
           ))}
         </div>
@@ -1435,7 +2129,7 @@ function SubmitView({ form, setForm, loading, onSubmit, error, success, dataMode
   );
 }
 
-function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onReject, dataMode }) {
+function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onReject, dataMode, moderationStatus, moderationAccessHint, onRefreshModeration, auditLogs, canPromoteEntries, effectiveRole }) {
   const queued = submissions.filter((item) => !["accepted", "rejected"].includes(item.status));
 
   return (
@@ -1448,6 +2142,23 @@ function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onRe
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 22 }}>
         <div style={{ display: "grid", gap: 14 }}>
+          {moderationStatus?.message && (
+            <div style={{ border: `1px solid ${moderationStatus.level === "ready" ? "rgba(121,217,199,0.22)" : "rgba(244,90,67,0.18)"}`, background: moderationStatus.level === "ready" ? "rgba(121,217,199,0.06)" : "rgba(244,90,67,0.06)", padding: "16px 14px", display: "grid", gap: 10 }}>
+              <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: moderationStatus.level === "ready" ? "rgba(121,217,199,0.82)" : "rgba(244,90,67,0.82)" }}>
+                {moderationStatus.message}
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {!moderationAccessHint && (
+                  <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: "rgba(255,255,255,0.52)" }}>
+                    Sign in as operator or set the fallback moderation token before using shared review or archive writes.
+                  </div>
+                )}
+                <button onClick={onRefreshModeration} disabled={loading} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.82)", padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+                  Retry moderation sync
+                </button>
+              </div>
+            </div>
+          )}
           {queued.length === 0 ? (
             <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "20px 18px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: "rgba(255,255,255,0.3)" }}>
               No queued submissions yet.
@@ -1474,10 +2185,10 @@ function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onRe
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button onClick={() => onPromote(submission)} disabled={loading} style={{ background: "#f45a43", border: "none", color: "#fff", padding: "10px 16px", cursor: "pointer", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 15, letterSpacing: "0.08em" }}>
+                  <button onClick={() => onPromote(submission)} disabled={loading || !canPromoteEntries} style={{ background: canPromoteEntries ? "#f45a43" : "rgba(255,255,255,0.05)", border: "none", color: canPromoteEntries ? "#fff" : "rgba(255,255,255,0.2)", padding: "10px 16px", cursor: canPromoteEntries ? "pointer" : "not-allowed", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 15, letterSpacing: "0.08em" }}>
                     {loading ? "WORKING" : "PROMOTE TO ARCHIVE"}
                   </button>
-                  <button onClick={() => onPromoteAndFeature(submission)} disabled={loading} style={{ background: "rgba(102,163,255,0.14)", border: "1px solid rgba(102,163,255,0.28)", color: "#fff", padding: "10px 14px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                  <button onClick={() => onPromoteAndFeature(submission)} disabled={loading || !canPromoteEntries} style={{ background: canPromoteEntries ? "rgba(102,163,255,0.14)" : "rgba(255,255,255,0.03)", border: `1px solid ${canPromoteEntries ? "rgba(102,163,255,0.28)" : "rgba(255,255,255,0.08)"}`, color: canPromoteEntries ? "#fff" : "rgba(255,255,255,0.2)", padding: "10px 14px", cursor: canPromoteEntries ? "pointer" : "not-allowed", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
                     Promote + feature today
                   </button>
                   <button onClick={() => onReject(submission)} disabled={loading} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.72)", padding: "10px 14px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>
@@ -1495,6 +2206,10 @@ function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onRe
             <div style={{ fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 24, lineHeight: 1.4, color: "rgba(255,255,255,0.76)" }}>
               {dataMode === "shared" ? "Shared queue can be reviewed globally." : "Queue is local/mock until shared storage is enabled."}
             </div>
+            <div style={{ marginTop: 10, fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.34)" }}>
+              Current moderation role: {effectiveRole || "viewer"}.
+              {!canPromoteEntries ? " Archive promotion requires editor or admin." : ""}
+            </div>
           </div>
           <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
             <SectionLabel>Promotion criteria</SectionLabel>
@@ -1503,6 +2218,31 @@ function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onRe
                 <div key={item} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>{item}</div>
               ))}
             </div>
+          </div>
+          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "18px 16px" }}>
+            <SectionLabel>Recent audit trail</SectionLabel>
+            {auditLogs?.length ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                {auditLogs.slice(0, 8).map((item) => (
+                  <div key={item.id} style={{ border: "1px solid rgba(255,255,255,0.05)", padding: "10px 9px" }}>
+                    <div style={{ fontFamily: "monospace", fontSize: 9, color: "#fff", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                      {item.action}
+                    </div>
+                    <div style={{ marginTop: 4, fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: "rgba(255,255,255,0.42)" }}>
+                      {(item.actor_email || item.actor_type || "unknown actor")} / {(item.actor_role || "no-role")}
+                    </div>
+                    <div style={{ marginTop: 4, fontFamily: "monospace", fontSize: 8, lineHeight: 1.7, color: "rgba(255,255,255,0.24)" }}>
+                      {item.target_type || "target"} {item.target_id ? `| ${String(item.target_id).slice(0, 18)}` : ""}
+                      {item.created_at ? ` | ${new Date(item.created_at).toLocaleString("en-US")}` : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
+                No audit entries visible yet.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1581,15 +2321,15 @@ function ProviderPanel({ settings, setSettings }) {
   }
 
   return (
-    <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "14px 14px 12px", minWidth: 280, maxWidth: collapsed ? 420 : 520, width: "100%" }}>
+    <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel, padding: "14px 14px 12px", minWidth: 280, maxWidth: collapsed ? 420 : 520, width: "100%" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: collapsed ? 0 : 10 }}>
         <div style={{ minWidth: 0 }}>
           <SectionLabel>Provider</SectionLabel>
-          <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: "rgba(255,255,255,0.24)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>
+          <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: UI_COLORS.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>
             {summary}
           </div>
         </div>
-        <button onClick={() => setCollapsed((value) => !value)} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.72)", padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.14em", flexShrink: 0 }}>
+        <button onClick={() => setCollapsed((value) => !value)} style={{ background: "transparent", border: `1px solid ${UI_COLORS.border}`, color: "#f1ebe5", padding: "10px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.14em", flexShrink: 0 }}>
           {collapsed ? "Expand" : "Collapse"}
         </button>
       </div>
@@ -1600,6 +2340,7 @@ function ProviderPanel({ settings, setSettings }) {
           ))}
         </select>
         <input value={settings[activeModelKey] || ""} onChange={(event) => updateSetting(activeModelKey, event.target.value)} placeholder="Model name" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
+        <input type="password" value={settings.moderationToken || ""} onChange={(event) => updateSetting("moderationToken", event.target.value)} placeholder="Moderation API token for review + archive writes" autoComplete="off" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
         {settings.provider === "ollama" && (
           <>
             <input value={settings.ollamaBaseUrl} onChange={(event) => updateSetting("ollamaBaseUrl", event.target.value)} placeholder="http://127.0.0.1:11434" style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "10px 12px", fontFamily: "monospace", fontSize: 11 }} />
@@ -1624,8 +2365,11 @@ function ProviderPanel({ settings, setSettings }) {
             )}
           </>
         )}
-        <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: "rgba(255,255,255,0.24)" }}>
+        <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: UI_COLORS.textMuted }}>
           Cloud providers use server env keys. Ollama is called from the browser so the user can point to a local or home-hosted model endpoint.
+        </div>
+        <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.6, color: UI_COLORS.textMuted }}>
+          The moderation token is only sent to protected routes that read or write the moderation queue and archive. Operator session login is now the preferred path; this token is the fallback.
         </div>
       </div>}
     </div>
@@ -1633,10 +2377,17 @@ function ProviderPanel({ settings, setSettings }) {
 }
 
 export default function App() {
+  const [accounts, setAccounts] = useState([DEFAULT_ACCOUNT]);
+  const [activeAccountId, setActiveAccountId] = useState(DEFAULT_ACCOUNT.id);
+  const [operatorAuth, setOperatorAuth] = useState({ ...DEFAULT_OPERATOR_AUTH, status: "checking", error: "" });
+  const [operatorDraft, setOperatorDraft] = useState({ email: "", password: "" });
+  const [operatorLoading, setOperatorLoading] = useState(false);
   const [entries, setEntries] = useState([]);
   const [featured, setFeatured] = useState(null);
   const [featuredMeta, setFeaturedMeta] = useState(null);
   const [digestPlan, setDigestPlan] = useState({});
+  const [workspace, setWorkspace] = useState(DEFAULT_WORKSPACE);
+  const [usage, setUsage] = useState({});
   const [view, setView] = useState("digest");
   const [filter, setFilter] = useState("all");
   const [dataMode, setDataMode] = useState("local");
@@ -1651,8 +2402,13 @@ export default function App() {
   const [watchlist, setWatchlist] = useState([]);
   const [submissionForm, setSubmissionForm] = useState({ project_name: "", project_url: "", contact: "", category_hint: "", summary: "" });
   const [submissions, setSubmissions] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [moderationStatus, setModerationStatus] = useState({ level: "idle", message: "" });
   const [monitorItems, setMonitorItems] = useState([]);
   const [monitorSnapshots, setMonitorSnapshots] = useState([]);
+  const [monitorBestPick, setMonitorBestPick] = useState(null);
+  const [monitorShortlist, setMonitorShortlist] = useState([]);
+  const [monitorProfile, setMonitorProfile] = useState("balanced");
   const [monitorMode, setMonitorMode] = useState("mock");
   const [monitorSources, setMonitorSources] = useState([]);
   const [monitorStats, setMonitorStats] = useState({ raw_count: 0, deduped_count: 0 });
@@ -1660,37 +2416,193 @@ export default function App() {
   const [submissionError, setSubmissionError] = useState("");
   const [submissionSuccess, setSubmissionSuccess] = useState("");
   const [monitorLoading, setMonitorLoading] = useState(false);
+  const [monitorError, setMonitorError] = useState("");
   const [loadingMode, setLoadingMode] = useState("");
   const [errorByMode, setErrorByMode] = useState({ launch: null, "gut-check": null, bull: null });
 
   useEffect(() => {
-    boot();
+    bootSession();
   }, []);
 
-  async function boot() {
-    const localDigestPlan = await loadDigestPlanFromStorage();
-    setDigestPlan(localDigestPlan && typeof localDigestPlan === "object" ? localDigestPlan : {});
-    const localArtifacts = await loadArtifactsFromStorage();
-    setArtifacts(Array.isArray(localArtifacts) ? localArtifacts : []);
-    const localWatchlist = await loadWatchlistFromStorage();
-    setWatchlist(Array.isArray(localWatchlist) ? localWatchlist : []);
+  useEffect(() => {
+    refreshOperatorSession();
+  }, []);
 
-    const localSubmissions = await loadSubmissionsFromStorage();
-    setSubmissions(Array.isArray(localSubmissions) ? localSubmissions : []);
-    const localMonitorItems = await loadMonitorItemsFromStorage();
-    setMonitorItems(Array.isArray(localMonitorItems) ? localMonitorItems : []);
-    const localMonitorSnapshots = await loadMonitorSnapshotsFromStorage();
-    setMonitorSnapshots(Array.isArray(localMonitorSnapshots) ? localMonitorSnapshots : []);
+  useEffect(() => {
+    if (!activeAccountId) return;
+    bootWorkspace(activeAccountId);
+  }, [activeAccountId]);
 
+  useEffect(() => {
+    if (!activeAccountId) return;
+    refreshModerationQueue();
+  }, [activeAccountId, providerSettings.moderationToken, operatorAuth.authenticated]);
+
+  useEffect(() => {
+    if (!activeAccountId) return;
+    refreshAuditLogs();
+  }, [activeAccountId, providerSettings.moderationToken, operatorAuth.authenticated]);
+
+  async function bootSession() {
+    const localAccounts = await loadAccountsFromStorage();
+    setAccounts(localAccounts);
+    const sessionAccountId = await loadSessionFromStorage();
+    const hasSessionAccount = localAccounts.some((item) => item.id === sessionAccountId);
+    const nextAccountId = hasSessionAccount ? sessionAccountId : localAccounts[0]?.id || DEFAULT_ACCOUNT.id;
+    setActiveAccountId(nextAccountId);
+  }
+
+  async function refreshOperatorSession() {
+    setOperatorLoading(true);
+    try {
+      const payload = await loadOperatorSessionFromApi();
+      setOperatorAuth({
+        authenticated: Boolean(payload?.authenticated),
+        configured: Boolean(payload?.configured),
+        session: payload?.session || null,
+        status: payload?.authenticated ? "authenticated" : "anonymous",
+        error: "",
+      });
+    } catch (error) {
+      setOperatorAuth((prev) => ({
+        ...prev,
+        status: "error",
+        error: error instanceof Error ? error.message : "Could not load operator session.",
+      }));
+    } finally {
+      setOperatorLoading(false);
+    }
+  }
+
+  async function signInOperator() {
+    if (!operatorDraft.email.trim() || !operatorDraft.password) return;
+    setOperatorLoading(true);
+    try {
+      const payload = await loginOperatorOnApi(operatorDraft.email.trim(), operatorDraft.password);
+      setOperatorAuth({
+        authenticated: Boolean(payload?.authenticated),
+        configured: true,
+        session: payload?.session || null,
+        status: payload?.authenticated ? "authenticated" : "anonymous",
+        error: "",
+      });
+      setOperatorDraft((prev) => ({ ...prev, password: "" }));
+      await refreshModerationQueue();
+    } catch (error) {
+      setOperatorAuth((prev) => ({
+        ...prev,
+        configured: prev.configured,
+        status: "error",
+        error: error instanceof Error ? error.message : "Could not sign in.",
+      }));
+    } finally {
+      setOperatorLoading(false);
+    }
+  }
+
+  async function signOutOperator() {
+    setOperatorLoading(true);
+    try {
+      await logoutOperatorOnApi();
+      setOperatorAuth({
+        authenticated: false,
+        configured: operatorAuth.configured,
+        session: null,
+        status: "anonymous",
+        error: "",
+      });
+      setModerationStatus({
+        level: "locked",
+        message: getModerationToken()
+          ? "Operator session closed. Protected routes can still use the manual moderation token."
+          : "Operator session closed. Sign in again or set a moderation token to access protected review and archive routes.",
+      });
+    } catch (error) {
+      setOperatorAuth((prev) => ({
+        ...prev,
+        status: "error",
+        error: error instanceof Error ? error.message : "Could not sign out.",
+      }));
+    } finally {
+      setOperatorLoading(false);
+    }
+  }
+
+  async function refreshModerationQueue() {
     try {
       const remoteSubmissions = await loadSubmissionsFromApi();
       if (Array.isArray(remoteSubmissions?.submissions)) {
         setSubmissions(remoteSubmissions.submissions);
+        setModerationStatus({ level: "ready", message: "" });
         if (remoteSubmissions.sharedDatabase) {
           setDataMode("shared");
         }
       }
-    } catch {}
+    } catch (error) {
+      if (isProtectedRouteFailure(error)) {
+        setModerationStatus({
+          level: "locked",
+          message: error.message || "Moderation routes require an operator session or a valid fallback token.",
+        });
+        return;
+      }
+    }
+  }
+
+  async function refreshAuditLogs() {
+    try {
+      const payload = await loadAuditLogsFromApi(10);
+      if (Array.isArray(payload?.auditLogs)) {
+        setAuditLogs(payload.auditLogs);
+      }
+    } catch (error) {
+      if (isProtectedRouteFailure(error)) {
+        setAuditLogs([]);
+      }
+    }
+  }
+
+  async function bootWorkspace(scopeId) {
+    setLaunchInput("");
+    setLaunchResult(null);
+    setGutCheckInput("");
+    setGutCheckResult(null);
+    setBullInput("");
+    setBullResult(null);
+    setSubmissionForm({ project_name: "", project_url: "", contact: "", category_hint: "", summary: "" });
+    const localDigestPlan = await loadDigestPlanFromStorage(scopeId);
+    setDigestPlan(localDigestPlan && typeof localDigestPlan === "object" ? localDigestPlan : {});
+    const localWorkspace = await loadWorkspaceFromStorage(scopeId);
+    setWorkspace(localWorkspace && typeof localWorkspace === "object" ? localWorkspace : DEFAULT_WORKSPACE);
+    const localUsage = await loadUsageFromStorage(scopeId);
+    setUsage(localUsage && typeof localUsage === "object" ? localUsage : {});
+    const localArtifacts = await loadArtifactsFromStorage(scopeId);
+    setArtifacts(Array.isArray(localArtifacts) ? localArtifacts : []);
+    const localWatchlist = await loadWatchlistFromStorage(scopeId);
+    setWatchlist(Array.isArray(localWatchlist) ? localWatchlist : []);
+
+    const localSubmissions = await loadSubmissionsFromStorage(scopeId);
+    setSubmissions(Array.isArray(localSubmissions) ? localSubmissions : []);
+    setAuditLogs([]);
+    setModerationStatus({
+      level: operatorAuth.authenticated || getModerationToken() ? "checking" : "locked",
+      message: operatorAuth.authenticated
+        ? "Checking operator moderation access."
+        : getModerationToken()
+          ? "Checking moderation access."
+          : "Sign in as operator or set a moderation token in the provider panel to read and update the shared review queue.",
+    });
+    const localMonitorItems = await loadMonitorItemsFromStorage(scopeId);
+    setMonitorItems(Array.isArray(localMonitorItems) ? localMonitorItems : []);
+    const localMonitorDecision = deriveMonitorDecisionFromItems(Array.isArray(localMonitorItems) ? localMonitorItems : []);
+    setMonitorBestPick(localMonitorDecision.bestPick);
+    setMonitorShortlist(localMonitorDecision.shortlist);
+    const localMonitorSnapshots = await loadMonitorSnapshotsFromStorage(scopeId);
+    setMonitorSnapshots(Array.isArray(localMonitorSnapshots) ? localMonitorSnapshots : []);
+    const localMonitorSettings = await loadMonitorSettingsFromStorage(scopeId);
+    setMonitorProfile(localMonitorSettings.profile || "balanced");
+
+    await refreshModerationQueue();
 
     try {
       const remote = await loadEntriesFromApi();
@@ -1706,12 +2618,12 @@ export default function App() {
         setFeatured(resolved.featured);
         setFeaturedMeta(resolved.featuredMeta);
         setDataMode(remote.sharedDatabase ? "shared" : "seed");
-        await saveToStorage(remote.entries);
+        await saveToStorage(remote.entries, scopeId);
         return;
       }
     } catch {}
 
-    const stored = await loadFromStorage();
+    const stored = await loadFromStorage(scopeId);
     const safeEntries = sanitizeStoredEntries(stored);
 
     if (safeEntries.length > 0) {
@@ -1736,7 +2648,64 @@ export default function App() {
     setFeatured(resolvedSeed.featured);
     setFeaturedMeta(resolvedSeed.featuredMeta);
     setDataMode("seed");
-    await saveToStorage(SEED);
+    await saveToStorage(SEED, scopeId);
+  }
+
+  function recordUsage(action) {
+    const key = todayKey();
+    const nextUsage = {
+      ...usage,
+      [key]: {
+        ...(usage[key] || {}),
+        [action]: Number(usage?.[key]?.[action] || 0) + 1,
+      },
+    };
+    setUsage(nextUsage);
+    saveUsageToStorage(nextUsage, activeAccountId);
+  }
+
+  function canUseAction(action) {
+    const remaining = getRemainingForAction(workspace.plan, usage, action);
+    if (remaining == null || remaining > 0) {
+      return { ok: true, remaining };
+    }
+    return { ok: false, remaining: 0, message: formatLimitMessage(workspace.plan, action) };
+  }
+
+  function resetTodayUsage() {
+    const key = todayKey();
+    const nextUsage = { ...usage, [key]: {} };
+    setUsage(nextUsage);
+    saveUsageToStorage(nextUsage, activeAccountId);
+  }
+
+  async function switchAccount(accountId) {
+    setActiveAccountId(accountId);
+    await saveSessionToStorage(accountId);
+    setSubmissionError("");
+    setSubmissionSuccess("");
+    setMonitorError("");
+    setErrorByMode({ launch: null, "gut-check": null, bull: null });
+  }
+
+  async function createLocalAccount({ name, email }) {
+    const existing = accounts.find((item) => item.email.toLowerCase() === email.toLowerCase());
+    if (existing) {
+      await switchAccount(existing.id);
+      return;
+    }
+
+    const nextAccount = {
+      id: crypto.randomUUID(),
+      name,
+      email,
+      role: "member",
+      created_at: new Date().toISOString(),
+    };
+    const nextAccounts = [nextAccount, ...accounts];
+    setAccounts(nextAccounts);
+    await saveAccountsToStorage(nextAccounts);
+    await switchAccount(nextAccount.id);
   }
 
   async function scheduleFeaturedEntry(entry) {
@@ -1749,13 +2718,21 @@ export default function App() {
       },
     };
     setDigestPlan(nextPlan);
-    await saveDigestPlanToStorage(nextPlan);
+    await saveDigestPlanToStorage(nextPlan, activeAccountId);
     setFeatured(entry);
     setFeaturedMeta({
       mode: "scheduled-local",
       date: today,
       source: "digest-plan",
     });
+  }
+
+  async function replaceMonitorItems(nextItems, nextDecision = null) {
+    setMonitorItems(nextItems);
+    await saveMonitorItemsToStorage(nextItems, activeAccountId);
+    const resolvedDecision = nextDecision || deriveMonitorDecisionFromItems(nextItems);
+    setMonitorBestPick(resolvedDecision.bestPick);
+    setMonitorShortlist(resolvedDecision.shortlist);
   }
 
   async function recordArtifact(mode, input, result) {
@@ -1783,7 +2760,7 @@ export default function App() {
 
     const nextArtifacts = [nextArtifact, ...artifacts].slice(0, 24);
     setArtifacts(nextArtifacts);
-    await saveArtifactsToStorage(nextArtifacts);
+    await saveArtifactsToStorage(nextArtifacts, activeAccountId);
   }
 
   async function addBullToWatchlist() {
@@ -1801,7 +2778,7 @@ export default function App() {
 
     const nextWatchlist = [nextItem, ...watchlist.filter((item) => item.input !== nextItem.input)].slice(0, 20);
     setWatchlist(nextWatchlist);
-    await saveWatchlistToStorage(nextWatchlist);
+    await saveWatchlistToStorage(nextWatchlist, activeAccountId);
   }
 
   async function addEntry(entry, options = {}) {
@@ -1810,10 +2787,17 @@ export default function App() {
 
     try {
       nextEntry = await createEntryOnApi(safeEntry);
+      setModerationStatus({ level: "ready", message: "" });
+      await refreshAuditLogs();
       if (!nextEntry?.local_only) {
         setDataMode("shared");
       }
-    } catch {}
+    } catch (error) {
+      if (isProtectedRouteFailure(error)) {
+        setModerationStatus({ level: "locked", message: error.message || "Archive writes require moderation access." });
+        throw error;
+      }
+    }
 
     const updated = [nextEntry, ...entries.filter((item) => item.id !== nextEntry.id)];
     setEntries(updated);
@@ -1827,7 +2811,7 @@ export default function App() {
         source: nextEntry?.local_only ? "local" : "entries",
       });
     }
-    await saveToStorage(updated);
+    await saveToStorage(updated, activeAccountId);
     return nextEntry;
   }
 
@@ -1843,7 +2827,7 @@ export default function App() {
       if (created?.local_only) {
         const nextSubmissions = [{ ...created, status: "new" }, ...submissions];
         setSubmissions(nextSubmissions);
-        await saveSubmissionsToStorage(nextSubmissions);
+        await saveSubmissionsToStorage(nextSubmissions, activeAccountId);
       } else {
         setSubmissions((prev) => [created, ...prev]);
       }
@@ -1865,61 +2849,86 @@ export default function App() {
 
   async function runMonitorSweep() {
     if (monitorLoading) return;
+    const monitorAccess = canUseAction("monitor");
+    if (!monitorAccess.ok) {
+      setMonitorError(monitorAccess.message);
+      return;
+    }
     setMonitorLoading(true);
+    setMonitorError("");
     try {
       let sweep = [];
       let nextMode = "mock";
       let nextSources = [];
       let nextStats = { raw_count: 0, deduped_count: 0 };
+      let nextBestPick = null;
+      let nextShortlist = [];
       try {
-        const realSweep = await runRealMonitorSweep();
+        const realSweep = await runRealMonitorSweep(monitorProfile);
         if (Array.isArray(realSweep?.items) && realSweep.items.length > 0) {
           sweep = realSweep.items;
           nextMode = realSweep.mode || "real";
           nextSources = Array.isArray(realSweep.sources) ? realSweep.sources : [];
+          nextBestPick = realSweep.best_pick || null;
+          nextShortlist = Array.isArray(realSweep.shortlist) ? realSweep.shortlist : [];
           nextStats = {
             raw_count: Number(realSweep.raw_count || realSweep.items.length),
             deduped_count: Number(realSweep.deduped_count || realSweep.items.length),
+            profile: realSweep.profile || monitorProfile,
           };
         }
       } catch {}
 
       if (sweep.length === 0) {
-        sweep = buildMockMonitorSweep(new Date());
+        sweep = buildMockMonitorSweep(new Date(), monitorProfile);
         nextMode = "mock";
         nextSources = [
           { source: "GitHub", ok: false, count: 0, error: "mock fallback" },
           { source: "Hacker News", ok: false, count: 0, error: "mock fallback" },
           { source: "Reddit", ok: false, count: 0, error: "mock fallback" },
+          { source: "Bluesky", ok: false, count: 0, error: "mock fallback" },
+          { source: "Mastodon", ok: false, count: 0, error: "mock fallback" },
+          { source: "DEV", ok: false, count: 0, error: "mock fallback" },
+          { source: "npm", ok: false, count: 0, error: "mock fallback" },
+          { source: "Hugging Face", ok: false, count: 0, error: "mock fallback" },
+          { source: "arXiv", ok: false, count: 0, error: "mock fallback" },
+          { source: "CoinGecko", ok: false, count: 0, error: "mock fallback" },
         ];
         nextStats = {
           raw_count: sweep.length,
           deduped_count: sweep.length,
+          profile: monitorProfile,
         };
       }
 
       setMonitorMode(nextMode);
       setMonitorSources(nextSources);
       setMonitorStats(nextStats);
-      setMonitorItems(sweep);
-      await saveMonitorItemsToStorage(sweep);
+      const decision = nextBestPick || nextShortlist.length
+        ? { bestPick: nextBestPick || nextShortlist[0] || null, shortlist: nextShortlist.length ? nextShortlist : deriveMonitorDecisionFromItems(sweep).shortlist }
+        : deriveMonitorDecisionFromItems(sweep);
+      await replaceMonitorItems(sweep, decision);
 
       const nextSnapshot = {
         id: crypto.randomUUID(),
         mode: "monitor-snapshot",
-        label: `${nextMode === "real" ? "Real" : "Mock"} sweep ${todayKey()}`,
-        summary: `${sweep.length} candidates captured in ${nextMode === "real" ? "real" : "fallback"} mode.`,
+        label: `${getMonitorProfileOption(monitorProfile).label} ${nextMode === "real" ? "real" : "mock"} sweep ${todayKey()}`,
+        summary: `${sweep.length} candidates captured in ${nextMode === "real" ? "real" : "fallback"} mode for the ${getMonitorProfileOption(monitorProfile).label} profile.`,
         created_at: new Date().toISOString(),
         result: {
           items: sweep,
           mode: nextMode,
           sources: nextSources,
           stats: nextStats,
+          profile: monitorProfile,
+          best_pick: decision.bestPick,
+          shortlist: decision.shortlist,
         },
       };
       const nextSnapshots = [nextSnapshot, ...monitorSnapshots].slice(0, 20);
       setMonitorSnapshots(nextSnapshots);
-      await saveMonitorSnapshotsToStorage(nextSnapshots);
+      await saveMonitorSnapshotsToStorage(nextSnapshots, activeAccountId);
+      recordUsage("monitor");
     } finally {
       setMonitorLoading(false);
     }
@@ -1945,13 +2954,13 @@ export default function App() {
       const normalizedCreated = created?.local_only ? { ...created, status: "new" } : created;
       const nextSubmissions = [normalizedCreated, ...submissions];
       setSubmissions(nextSubmissions);
-      await saveSubmissionsToStorage(nextSubmissions);
+      await saveSubmissionsToStorage(nextSubmissions, activeAccountId);
 
       const updatedMonitor = monitorItems.map((entry) => (
         entry.id === item.id ? { ...entry, queue_status: "queued" } : entry
       ));
-      setMonitorItems(updatedMonitor);
-      await saveMonitorItemsToStorage(updatedMonitor);
+      const syncedDecision = syncMonitorDecisionWithItems(updatedMonitor, monitorBestPick, monitorShortlist);
+      await replaceMonitorItems(updatedMonitor, syncedDecision);
 
       if (!created?.local_only) {
         setDataMode("shared");
@@ -1966,20 +2975,49 @@ export default function App() {
     }
   }
 
+  async function featureMonitorCandidate(item) {
+    if (!item || submissionLoading || item.queue_status === "featured") return;
+    setSubmissionLoading(true);
+    setSubmissionError("");
+    setSubmissionSuccess("");
+
+    try {
+      await addEntry(buildEntryFromMonitorItem(item, monitorProfile), { featureToday: true });
+      const updatedMonitor = monitorItems.map((entry) => (
+        entry.id === item.id ? { ...entry, queue_status: "featured" } : entry
+      ));
+      const syncedDecision = syncMonitorDecisionWithItems(updatedMonitor, monitorBestPick, monitorShortlist);
+      await replaceMonitorItems(updatedMonitor, syncedDecision);
+      setSubmissionSuccess("Monitor candidate promoted and scheduled as today's featured item.");
+      setView("digest");
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : "Could not promote monitor candidate.");
+      setMonitorError(error instanceof Error ? error.message : "Could not promote monitor candidate.");
+    } finally {
+      setSubmissionLoading(false);
+    }
+  }
+
   async function updateSubmissionState(id, patch) {
     let updated;
     try {
       updated = await updateSubmissionOnApi(id, patch);
+      setModerationStatus({ level: "ready", message: "" });
+      await refreshAuditLogs();
       if (!updated?.local_only) {
         setDataMode("shared");
       }
-    } catch {
+    } catch (error) {
+      if (isProtectedRouteFailure(error)) {
+        setModerationStatus({ level: "locked", message: error.message || "Updating the moderation queue requires a valid token." });
+        throw error;
+      }
       updated = { id, ...patch, local_only: true, updated_at: new Date().toISOString() };
     }
 
     const next = submissions.map((item) => (item.id === id ? { ...item, ...updated } : item));
     setSubmissions(next);
-    await saveSubmissionsToStorage(next);
+    await saveSubmissionsToStorage(next, activeAccountId);
     return next.find((item) => item.id === id) || updated;
   }
 
@@ -2037,6 +3075,11 @@ export default function App() {
 
   async function runMode(mode, rawInput) {
     if (!rawInput.trim() || loadingMode) return;
+    const access = canUseAction(mode);
+    if (!access.ok) {
+      setErrorByMode((prev) => ({ ...prev, [mode]: access.message }));
+      return;
+    }
 
     setLoadingMode(mode);
     setErrorByMode((prev) => ({ ...prev, [mode]: null }));
@@ -2077,12 +3120,15 @@ export default function App() {
       if (mode === "launch") {
         setLaunchResult(result);
         await recordArtifact("launch", rawInput, result);
+        recordUsage("launch");
       } else if (mode === "gut-check") {
         setGutCheckResult(result);
         await recordArtifact("gut-check", rawInput, result);
+        recordUsage("gut-check");
       } else if (mode === "bull") {
         setBullResult(result);
         await recordArtifact("bull", rawInput, result);
+        recordUsage("bull");
       } else {
         await addEntry(result);
         setView("digest");
@@ -2097,18 +3143,41 @@ export default function App() {
   }
 
   const activeView = (() => {
+    const effectiveModerationRole = String(providerSettings.moderationToken || "").trim()
+      ? "admin"
+      : operatorAuth.authenticated
+        ? normalizeOperatorRole(operatorAuth.session?.role)
+        : "viewer";
+    const canPromoteEntries = hasOperatorRoleAtLeast(effectiveModerationRole, "editor");
+
     if (view === "digest") return <DigestView entries={entries} featured={featured} featuredMeta={featuredMeta} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); }} setView={setView} />;
-    if (view === "monitor") return <MonitorView items={monitorItems} loading={monitorLoading || submissionLoading} onSweep={runMonitorSweep} onQueueToReview={queueMonitorItem} monitorMode={monitorMode} monitorSources={monitorSources} monitorStats={monitorStats} snapshots={monitorSnapshots} onLoadSnapshot={(artifact) => {
-      setMonitorItems(artifact?.result?.items || []);
+    if (view === "monitor") return <MonitorView items={monitorItems} loading={monitorLoading || submissionLoading} error={monitorError} onSweep={runMonitorSweep} onQueueToReview={queueMonitorItem} onPromoteToDigest={featureMonitorCandidate} bestPick={monitorBestPick} shortlist={monitorShortlist} monitorMode={monitorMode} monitorSources={monitorSources} monitorStats={monitorStats} snapshots={monitorSnapshots} monitorProfile={monitorProfile} setMonitorProfile={async (profile) => {
+      setMonitorProfile(profile);
+      await saveMonitorSettingsToStorage({ profile }, activeAccountId);
+    }} onLoadSnapshot={(artifact) => {
+      const nextItems = artifact?.result?.items || [];
+      setMonitorItems(nextItems);
       setMonitorMode(artifact?.result?.mode || "mock");
       setMonitorSources(artifact?.result?.sources || []);
       setMonitorStats(artifact?.result?.stats || { raw_count: 0, deduped_count: 0 });
+      const nextProfile = artifact?.result?.profile || "balanced";
+      setMonitorProfile(nextProfile);
+      const nextDecision =
+        artifact?.result?.best_pick || Array.isArray(artifact?.result?.shortlist)
+          ? {
+            bestPick: artifact?.result?.best_pick || null,
+            shortlist: Array.isArray(artifact?.result?.shortlist) ? artifact.result.shortlist : [],
+          }
+          : deriveMonitorDecisionFromItems(nextItems);
+      setMonitorBestPick(nextDecision.bestPick);
+      setMonitorShortlist(nextDecision.shortlist);
+      saveMonitorSettingsToStorage({ profile: nextProfile }, activeAccountId);
     }} />;
     if (view === "launch") return <LaunchView input={launchInput} setInput={setLaunchInput} loading={loadingMode === "launch"} analyze={() => runMode("launch", launchInput)} error={errorByMode.launch} result={launchResult} history={artifacts.filter((item) => item.mode === "launch")} onLoadHistory={(artifact) => { setLaunchInput(artifact.input || ""); setLaunchResult(artifact.result || null); }} />;
     if (view === "gut-check") return <GutCheckView entries={entries} input={gutCheckInput} setInput={setGutCheckInput} loading={loadingMode === "gut-check"} analyze={() => runMode("gut-check", gutCheckInput)} error={errorByMode["gut-check"]} result={gutCheckResult} history={artifacts.filter((item) => item.mode === "gut-check")} onLoadHistory={(artifact) => { setGutCheckInput(artifact.input || ""); setGutCheckResult(artifact.result || null); }} />;
     if (view === "bull") return <BullView entries={entries} setView={setView} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} input={bullInput} setInput={setBullInput} loading={loadingMode === "bull"} analyze={() => runMode("bull", bullInput)} error={errorByMode.bull} result={bullResult} history={artifacts.filter((item) => item.mode === "bull")} watchlist={watchlist} onLoadHistory={(artifact) => { setBullInput(artifact.input || ""); setBullResult(artifact.result || null); }} onSaveWatchlist={addBullToWatchlist} />;
     if (view === "submit") return <SubmitView form={submissionForm} setForm={setSubmissionForm} loading={submissionLoading} onSubmit={submitProject} error={submissionError} success={submissionSuccess} dataMode={dataMode} />;
-    if (view === "review") return <ReviewView submissions={submissions} loading={submissionLoading} onPromote={promoteSubmission} onPromoteAndFeature={promoteAndFeatureSubmission} onReject={rejectSubmission} dataMode={dataMode} />;
+    if (view === "review") return <ReviewView submissions={submissions} loading={submissionLoading} onPromote={promoteSubmission} onPromoteAndFeature={promoteAndFeatureSubmission} onReject={rejectSubmission} dataMode={dataMode} moderationStatus={moderationStatus} moderationAccessHint={operatorAuth.authenticated || Boolean(String(providerSettings.moderationToken || "").trim())} onRefreshModeration={refreshModerationQueue} auditLogs={auditLogs} canPromoteEntries={canPromoteEntries} effectiveRole={effectiveModerationRole} />;
     return <ArchiveView entries={entries} filter={filter} setFilter={setFilter} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} />;
   })();
 
@@ -2145,14 +3214,19 @@ export default function App() {
               </button>
             ))}
           </nav>
-          <ProviderPanel settings={providerSettings} setSettings={setProviderSettings} />
+          <div style={{ display: "grid", gap: 10, width: "100%", maxWidth: 520 }}>
+            <AccountPanel accounts={accounts} activeAccountId={activeAccountId} setActiveAccountId={switchAccount} onCreateAccount={createLocalAccount} />
+            <WorkspacePanel workspace={workspace} usage={usage} setWorkspace={setWorkspace} onResetUsage={resetTodayUsage} scopeId={activeAccountId} />
+            <OperatorAuthPanel authState={operatorAuth} draft={operatorDraft} setDraft={setOperatorDraft} loading={operatorLoading} onLogin={signInOperator} onLogout={signOutOperator} onRefresh={refreshOperatorSession} />
+            <ProviderPanel settings={providerSettings} setSettings={setProviderSettings} />
+          </div>
         </div>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 20px 12px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontFamily: "monospace", fontSize: 8, color: dataMode === "shared" ? "rgba(121,217,199,0.78)" : "rgba(255,255,255,0.24)", letterSpacing: "0.16em", textTransform: "uppercase" }}>
             {dataMode === "shared" ? "Shared archive live" : dataMode === "seed" ? "Seed archive fallback" : "Local archive fallback"}
           </span>
           <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.18)", letterSpacing: "0.16em", textTransform: "uppercase" }}>
-            Featured updates become global when Supabase is connected
+            {getPlanConfig(workspace.plan).label} workspace active for {accounts.find((item) => item.id === activeAccountId)?.name || "local operator"} | featured updates become global when Supabase is connected
           </span>
         </div>
       </header>
