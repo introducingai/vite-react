@@ -651,7 +651,7 @@ function OperatorAuthPanel({ authState, draft, setDraft, loading, onLogin, onLog
 
 async function loadEntriesFromApi() {
   const response = await fetch("/api/entries");
-  const payload = await readJsonResponse(response, "Entries endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not load data. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not load the shared archive.");
@@ -667,7 +667,7 @@ async function createEntryOnApi(entry) {
     headers: buildModerationHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ entry }),
   });
-  const payload = await readJsonResponse(response, "Entries write returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not save. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not persist this entry.");
@@ -682,7 +682,7 @@ async function createSubmissionOnApi(submission) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(submission),
   });
-  const payload = await readJsonResponse(response, "Submission endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not submit. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not submit this project.");
@@ -696,7 +696,7 @@ async function loadSubmissionsFromApi() {
     credentials: "same-origin",
     headers: buildModerationHeaders(),
   });
-  const payload = await readJsonResponse(response, "Submissions endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not load. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not load submissions.");
@@ -712,7 +712,7 @@ async function updateSubmissionOnApi(id, patch) {
     headers: buildModerationHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ id, ...patch }),
   });
-  const payload = await readJsonResponse(response, "Submission update returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not update. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not update submission.");
@@ -725,7 +725,7 @@ async function loadOperatorSessionFromApi() {
   const response = await fetch("/api/auth/session", {
     credentials: "same-origin",
   });
-  const payload = await readJsonResponse(response, "Auth session endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not connect. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not load operator session.");
@@ -741,7 +741,7 @@ async function loginOperatorOnApi(email, password) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  const payload = await readJsonResponse(response, "Auth login endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not connect. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not sign in.");
@@ -757,7 +757,7 @@ async function logoutOperatorOnApi() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  const payload = await readJsonResponse(response, "Auth logout endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not connect. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not sign out.");
@@ -771,7 +771,7 @@ async function loadAuditLogsFromApi(limit = 12) {
     credentials: "same-origin",
     headers: buildModerationHeaders(),
   });
-  const payload = await readJsonResponse(response, "Audit logs endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not load. Please try again.");
 
   if (!response.ok) {
     throw buildHttpError(response.status, payload?.error || "Could not load audit logs.");
@@ -782,7 +782,7 @@ async function loadAuditLogsFromApi(limit = 12) {
 
 async function runRealMonitorSweep(profile = "balanced") {
   const response = await fetch(`/api/monitor?profile=${encodeURIComponent(profile)}`);
-  const payload = await readJsonResponse(response, "Monitor endpoint returned an invalid response.");
+  const payload = await readJsonResponse(response, "Could not connect. Please try again.");
 
   if (!response.ok) {
     throw new Error(payload?.error || "Could not run source monitor.");
@@ -3094,7 +3094,7 @@ export default function App() {
           body: JSON.stringify({ query: rawInput }),
         });
 
-        const data = await readJsonResponse(res, "Market scan returned an invalid response.");
+        const data = await readJsonResponse(res, "Could not connect. Please try again.");
         if (!res.ok) throw new Error(data?.error || "Could not scan the market right now.");
         result = data.result;
       } else if (providerSettings.provider === "ollama") {
@@ -3110,7 +3110,7 @@ export default function App() {
           body: JSON.stringify({ input: rawInput, mode, provider: providerSettings.provider, model: providerSettings[modelKey] }),
         });
 
-        const data = await readJsonResponse(res, "Analyze endpoint returned an invalid response.");
+        const data = await readJsonResponse(res, "Could not connect. Please try again.");
         if (!res.ok) throw new Error(data?.error || "Could not process that request right now.");
 
         if (mode === "launch") result = normalizeLaunchPackage(data.result);
