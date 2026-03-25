@@ -95,7 +95,10 @@ export default async function handler(req, res) {
 
     return sendJson(res, 200, { mode, provider, model, result, availableProviders: getEnabledProviders() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected server error.";
-    return sendJson(res, error?.statusCode || 500, { error: message });
+    const statusCode = error?.statusCode || 500;
+    const safeMessage = statusCode === 400 || statusCode === 415 || statusCode === 429
+      ? (error instanceof Error ? error.message : "Bad request.")
+      : "An unexpected error occurred. Please try again.";
+    return sendJson(res, statusCode, { error: safeMessage });
   }
 }
