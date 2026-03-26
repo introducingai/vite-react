@@ -261,6 +261,16 @@ export async function checkRateLimit(key, config = getRouteRateLimitConfig()) {
   return checkLocalRateLimit(key, config);
 }
 
+// Like checkRateLimit but never fails closed — uses in-memory when Upstash
+// is not configured. Use this for read-only or non-sensitive endpoints.
+export async function checkRateLimitWithFallback(key, config = getRouteRateLimitConfig()) {
+  const upstash = getUpstashConfig();
+  if (upstash.enabled) {
+    return checkDistributedRateLimit(key, config);
+  }
+  return checkLocalRateLimit(key, config);
+}
+
 export function getAllowedOrigins(req) {
   const allowed = new Set();
   const envOrigins = String(process.env.ALLOWED_ORIGINS || "")
