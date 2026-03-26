@@ -1,9 +1,11 @@
+import { buildBirdThemeQueries, runBirdSearch } from "./bird.js";
+
 const DEFAULT_HEADERS = {
   "User-Agent": "introducing-source-monitor",
   Accept: "application/json",
 };
 
-const SOURCE_NAMES = ["GitHub", "Hacker News", "Reddit", "Bluesky", "Mastodon", "DEV", "npm", "Hugging Face", "arXiv", "CoinGecko"];
+const SOURCE_NAMES = ["GitHub", "Hacker News", "Reddit", "Bluesky", "Mastodon", "X", "DEV", "npm", "Hugging Face", "arXiv", "CoinGecko"];
 const DEFAULT_MONITOR_PROFILE = "balanced";
 
 const MONITOR_THEMES = [
@@ -151,6 +153,7 @@ function buildProfileSearches(profileKey = DEFAULT_MONITOR_PROFILE) {
   return {
     bluesky: themes.flatMap((theme) => theme.socialQueries.map((query) => ({ query, themeIds: [theme.id] }))),
     mastodon: themes.flatMap((theme) => theme.mastodonTags.map((tag) => ({ tag, themeIds: [theme.id] }))),
+    x: themes.flatMap((theme) => buildBirdThemeQueries(theme).map((query) => ({ query, themeIds: [theme.id] }))).slice(0, 8),
     github: [...new Set(themes.flatMap((theme) => theme.searchTerms))].slice(0, 8).join(" OR "),
     hn: [...new Set(themes.flatMap((theme) => theme.searchTerms.map((term) => term.replace(/"/g, ""))))].slice(0, 8).join(" "),
     reddit: [...new Set(themes.flatMap((theme) => theme.searchTerms))].slice(0, 8).join(" OR "),
@@ -293,6 +296,7 @@ function sourceBoost(source) {
     Reddit: 3,
     Bluesky: 4,
     Mastodon: 3,
+    X: 5,
     DEV: 3,
     npm: 5,
     "Hugging Face": 5,
@@ -388,6 +392,7 @@ function featuredSourceTrustBoost(source) {
     Reddit: 6,
     Bluesky: 5,
     Mastodon: 5,
+    X: 7,
     CoinGecko: 8,
   };
   return boosts[source] || 0;
@@ -456,7 +461,7 @@ function buildFeaturedRationale(item, profileKey = DEFAULT_MONITOR_PROFILE) {
 
   if (["GitHub", "npm", "Hugging Face", "arXiv"].includes(item.source)) {
     reasons.push("comes from a source with stronger build or research signal");
-  } else if (["Reddit", "Bluesky", "Mastodon"].includes(item.source)) {
+  } else if (["Reddit", "Bluesky", "Mastodon", "X"].includes(item.source)) {
     reasons.push("has active social/community evidence in the target niche");
   }
 
@@ -700,6 +705,48 @@ async function collectMastodon(profileKey = DEFAULT_MONITOR_PROFILE) {
     });
 }
 
+async function collectX(profileKey = DEFAULT_MONITOR_PROFILE) {
+  const { x } = buildProfileSearches(profileKey);
+  const settled = await Promise.allSettled(
+    x.map((item) => runBirdSearch(item.query, { limit: 2, timeoutMs: 15_000 })),
+  );
+
+  return settled.flatMap((result, index) => {
+    if (result.status !== "fulfilled") {
+      return [];
+    }
+
+    const search = x[index];
+    const tweets = Array.isArray(result.value?.tweets) ? result.value.tweets : [];
+
+    return tweets.map((tweet, itemIndex) => {
+      const text = tweet?.text || "X post";
+      const username = tweet?.author?.username || "x";
+      const name = tweet?.author?.name || username;
+      const metrics = tweet?.metrics || {};
+
+      return {
+        id: `x-${search.query.replace(/[^a-z0-9]+/gi, "-")}-${tweet?.id || itemIndex}`,
+        source: "X",
+        source_type: "social",
+        author: username ? `@${username}` : name,
+        project_name: truncate(text, 80),
+        category_hint: guessCategory(text),
+        url: tweet?.url || "",
+        summary: truncate(text || "X post discussing a relevant launch, agent, tool, or trend."),
+        signal_reason: `X post matched focused query "${search.query}" with ${metrics.likes || 0} likes, ${metrics.reposts || 0} reposts, and ${metrics.replies || 0} replies.`,
+        novelty_hint: noveltyHint(text, Number(metrics.likes || 0) + Number(metrics.reposts || 0) + Number(metrics.replies || 0)),
+        content_text: `${text} ${name} ${username}`,
+        detected_at: tweet?.created_at || new Date().toISOString(),
+        queue_status: "new",
+        source_mode: "real",
+        query: search.query,
+        theme_hint: search.themeIds,
+      };
+    });
+  });
+}
+
 async function collectDevTo(profileKey = DEFAULT_MONITOR_PROFILE) {
   const { devTags } = buildProfileSearches(profileKey);
   const settled = await Promise.allSettled(
@@ -869,6 +916,7 @@ export async function runSourceMonitorSweep(profileKey = DEFAULT_MONITOR_PROFILE
     collectReddit,
     collectBluesky,
     collectMastodon,
+    collectX,
     collectDevTo,
     collectNpm,
     collectHuggingFace,
