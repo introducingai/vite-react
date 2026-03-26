@@ -1,4 +1,4 @@
-import { applyRateLimitHeaders, applySecurityHeaders, checkRateLimit, getClientIp, getRouteRateLimitConfig, isAllowedOrigin } from "./_lib/security.js";
+import { applyRateLimitHeaders, applySecurityHeaders, checkRateLimitWithFallback, getClientIp, getRouteRateLimitConfig, isAllowedOrigin } from "./_lib/security.js";
 import { runSourceMonitorSweep } from "./_lib/sourceMonitor.js";
 
 function sendJson(res, statusCode, payload) {
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
 
   try {
     const clientIp = getClientIp(req);
-    const rateLimit = await checkRateLimit(`monitor:${clientIp}`, getRouteRateLimitConfig("MONITOR_RATE_LIMIT", { maxRequests: 4, windowMs: 60_000 }));
+    const rateLimit = await checkRateLimitWithFallback(`monitor:${clientIp}`, getRouteRateLimitConfig("MONITOR_RATE_LIMIT", { maxRequests: 4, windowMs: 60_000 }));
     applyRateLimitHeaders(res, rateLimit);
 
     if (!rateLimit.allowed) {
