@@ -93,6 +93,16 @@ export async function runBirdSearch(query, { limit = DEFAULT_LIMIT, timeoutMs = 
     error.code = "BIRD_AUTH_FAILED";
     throw error;
   }
+  if (response.status === 402) {
+    const error = new Error("X API search requires a paid plan. Upgrade your X Developer account to Basic or higher at developer.twitter.com.");
+    error.code = "BIRD_PAYMENT_REQUIRED";
+    throw error;
+  }
+  if (response.status === 403) {
+    const error = new Error("X API access forbidden. Your app may not have search permissions enabled.");
+    error.code = "BIRD_FORBIDDEN";
+    throw error;
+  }
   if (response.status === 429) {
     const error = new Error("X API rate limit exceeded. Try again later.");
     error.code = "BIRD_RATE_LIMITED";
