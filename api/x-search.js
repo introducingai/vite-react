@@ -88,7 +88,7 @@ export default async function handler(req, res) {
       const firstError = searches.find((item) => item.error)?.error || "bird search failed.";
       return sendJson(res, 503, {
         error: firstError,
-        setup_hint: "Make sure bird is installed and authenticated. Try `bird whoami` in a fresh terminal, or set BIRD_BIN / AUTH_TOKEN / CT0 for the server process.",
+        setup_hint: "Check that X_BEARER_TOKEN is set in your environment, and that your X Developer account has at least the Basic plan (search requires a paid tier).",
         provider: "bird.fast",
         searches,
       });
