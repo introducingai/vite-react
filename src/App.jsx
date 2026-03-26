@@ -1453,6 +1453,43 @@ function ToolShell({ eyebrow, title, description, children, asideTitle, asideIte
 
 function MonitorView({ items, loading, onSweep, onQueueToReview, onPromoteToDigest, bestPick, shortlist, monitorMode, monitorSources, monitorStats, snapshots, onLoadSnapshot, error, monitorProfile, setMonitorProfile }) {
   const activeProfile = getMonitorProfileOption(monitorProfile);
+  const [xQuery, setXQuery] = useState("introducing");
+  const [xPreset, setXPreset] = useState("search");
+  const [xLoading, setXLoading] = useState(false);
+  const [xStatus, setXStatus] = useState("");
+  const [xResult, setXResult] = useState(null);
+
+  async function runXProbe() {
+    if (xLoading) return;
+
+    setXLoading(true);
+    setXStatus("");
+
+    try {
+      const endpoint = xPreset === "launches"
+        ? `/api/x-search?preset=launches&term=${encodeURIComponent(xQuery.trim() || "introducing")}`
+        : `/api/x-search?q=${encodeURIComponent(xQuery.trim() || "introducing")}`;
+
+      const response = await fetch(endpoint, { method: "GET" });
+      const payload = await readJsonResponse(response, "Could not reach the X search route.");
+
+      if (!response.ok) {
+        const searches = Array.isArray(payload?.searches) ? payload.searches : [];
+        const setupHint = payload?.setup_hint ? ` ${payload.setup_hint}` : "";
+        const detail = searches.find((item) => item?.error)?.error || payload?.error || "Could not query X.";
+        throw new Error(`${detail}${setupHint}`);
+      }
+
+      setXResult(payload);
+      setXStatus(`X probe returned ${Number(payload?.count || 0)} tweets across ${Array.isArray(payload?.queries) ? payload.queries.length : 0} query paths.`);
+    } catch (probeError) {
+      setXResult(null);
+      setXStatus(probeError instanceof Error ? probeError.message : "Could not query X.");
+    } finally {
+      setXLoading(false);
+    }
+  }
+
   return (
     <ToolShell
       eyebrow="Source monitor / thesis-native pipeline"
@@ -1500,6 +1537,96 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, onPromoteToDige
             <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
               {activeProfile.description}
             </div>
+          </div>
+          <div style={{ border: "1px solid rgba(102,163,255,0.16)", background: "rgba(102,163,255,0.05)", padding: "18px 16px", display: "grid", gap: 12 }}>
+            <SectionLabel color="#66a3ff">X / bird.fast probe</SectionLabel>
+            <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.34)" }}>
+              Test X auth and search from the site before relying on the full sweep. This calls the same local `bird.fast` route the monitor uses for its `X` source.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={() => setXPreset("search")}
+                style={{
+                  background: xPreset === "search" ? "rgba(102,163,255,0.12)" : "transparent",
+                  border: `1px solid ${xPreset === "search" ? "rgba(102,163,255,0.28)" : "rgba(255,255,255,0.08)"}`,
+                  color: xPreset === "search" ? "#fff" : "rgba(255,255,255,0.62)",
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  fontFamily: "monospace",
+                  fontSize: 9,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.14em",
+                }}
+              >
+                Direct query
+              </button>
+              <button
+                onClick={() => setXPreset("launches")}
+                style={{
+                  background: xPreset === "launches" ? "rgba(102,163,255,0.12)" : "transparent",
+                  border: `1px solid ${xPreset === "launches" ? "rgba(102,163,255,0.28)" : "rgba(255,255,255,0.08)"}`,
+                  color: xPreset === "launches" ? "#fff" : "rgba(255,255,255,0.62)",
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  fontFamily: "monospace",
+                  fontSize: 9,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.14em",
+                }}
+              >
+                Launch preset
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                value={xQuery}
+                onChange={(event) => setXQuery(event.target.value)}
+                placeholder="introducing"
+                style={{ flex: "1 1 280px", minWidth: 220, background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: "11px 12px", fontFamily: "monospace", fontSize: 11 }}
+              />
+              <button onClick={runXProbe} disabled={xLoading} style={{ background: "#66a3ff", border: "none", color: "#08111b", padding: "10px 16px", cursor: xLoading ? "wait" : "pointer", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 16, letterSpacing: "0.08em" }}>
+                {xLoading ? "TESTING X" : "TEST X"}
+              </button>
+            </div>
+            {xStatus && (
+              <div style={{ padding: 12, border: `1px solid ${xResult ? "rgba(102,163,255,0.20)" : "rgba(244,90,67,0.18)"}`, background: xResult ? "rgba(102,163,255,0.06)" : "rgba(244,90,67,0.06)", fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: xResult ? "rgba(194,221,255,0.86)" : "rgba(244,90,67,0.82)" }}>
+                {xStatus}
+              </div>
+            )}
+            {xResult && (
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ fontFamily: "monospace", fontSize: 9, lineHeight: 1.7, color: "rgba(255,255,255,0.34)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Queries: {(xResult.queries || []).join(" / ")}
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {(xResult.tweets || []).slice(0, 4).map((tweet) => (
+                    <div key={tweet.id || tweet.url} style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "12px 10px", display: "grid", gap: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 18, letterSpacing: "0.04em", color: "#fff", textTransform: "uppercase" }}>
+                          @{tweet?.author?.username || "x"}
+                        </div>
+                        <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.24)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                          likes {tweet?.metrics?.likes || 0} | reposts {tweet?.metrics?.reposts || 0} | replies {tweet?.metrics?.replies || 0}
+                        </span>
+                      </div>
+                      <div style={{ fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 18, lineHeight: 1.45, color: "rgba(255,255,255,0.76)" }}>
+                        {tweet?.text || "Untitled X post"}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.22)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                          {tweet?.created_at ? new Date(tweet.created_at).toLocaleString("en-US") : "unknown time"}
+                        </span>
+                        {tweet?.url && (
+                          <a href={tweet.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", fontFamily: "monospace", fontSize: 9, color: "rgba(102,163,255,0.82)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                            Open on X
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           {error && <div style={{ padding: 12, border: "1px solid rgba(244,90,67,0.18)", background: "rgba(244,90,67,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(244,90,67,0.82)" }}>{error}</div>}
 
@@ -1651,6 +1778,7 @@ function MonitorView({ items, loading, onSweep, onQueueToReview, onPromoteToDige
                 { source: "Reddit", ok: false, count: 0 },
                 { source: "Bluesky", ok: false, count: 0 },
                 { source: "Mastodon", ok: false, count: 0 },
+                { source: "X", ok: false, count: 0 },
                 { source: "DEV", ok: false, count: 0 },
                 { source: "npm", ok: false, count: 0 },
                 { source: "Hugging Face", ok: false, count: 0 },
@@ -2888,6 +3016,7 @@ export default function App() {
           { source: "Reddit", ok: false, count: 0, error: "mock fallback" },
           { source: "Bluesky", ok: false, count: 0, error: "mock fallback" },
           { source: "Mastodon", ok: false, count: 0, error: "mock fallback" },
+          { source: "X", ok: false, count: 0, error: "mock fallback" },
           { source: "DEV", ok: false, count: 0, error: "mock fallback" },
           { source: "npm", ok: false, count: 0, error: "mock fallback" },
           { source: "Hugging Face", ok: false, count: 0, error: "mock fallback" },
