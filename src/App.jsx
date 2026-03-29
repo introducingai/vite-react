@@ -2517,6 +2517,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState(DEFAULT_WORKSPACE);
   const [usage, setUsage] = useState({});
   const [view, setView] = useState("digest");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [filter, setFilter] = useState("all");
   const [dataMode, setDataMode] = useState("local");
   const [providerSettings, setProviderSettings] = useState(() => loadProviderSettings());
@@ -3322,34 +3323,51 @@ export default function App() {
       `}</style>
 
       <header style={{ position: "sticky", top: 0, zIndex: 60, backdropFilter: "blur(18px)", background: "rgba(5,8,12,0.9)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 28, color: "#fff", letterSpacing: "0.12em", lineHeight: 1 }}>
-              INTRODUCING
-            </div>
-            <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.16)", letterSpacing: "0.18em", textTransform: "uppercase" }}>
-              Journal + toolkit for agent launches
-            </span>
-          </div>
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 20px", height: 52, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          {/* Logo / home button */}
+          <button onClick={() => setView("digest")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", flexShrink: 0 }}>
+            <img src="/logo.png" alt="INTRODUCING" style={{ height: 28, width: "auto", display: "block" }} onError={(e) => { e.target.style.display="none"; e.target.nextSibling.style.display="block"; }} />
+            <span style={{ display: "none", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 26, color: "#fff", letterSpacing: "0.12em", lineHeight: 1 }}>INTRODUCING</span>
+          </button>
 
-          <nav style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {/* Nav */}
+          <nav style={{ display: "flex", gap: 2, flexWrap: "nowrap", overflow: "auto", flex: 1, justifyContent: "center" }}>
             {NAV_ITEMS.map((item) => (
               <button
                 key={item}
-                onClick={() => setView(item)}
-                style={{ background: view === item ? "rgba(244,90,67,0.10)" : "transparent", border: `1px solid ${view === item ? "rgba(244,90,67,0.22)" : "transparent"}`, color: view === item ? "#fff" : "rgba(255,255,255,0.3)", padding: "8px 12px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.15em" }}
+                onClick={() => { setView(item); setSettingsOpen(false); }}
+                style={{ background: view === item ? "rgba(244,90,67,0.10)" : "transparent", border: `1px solid ${view === item ? "rgba(244,90,67,0.22)" : "transparent"}`, color: view === item ? "#fff" : "rgba(255,255,255,0.28)", padding: "6px 10px", cursor: "pointer", fontFamily: "monospace", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.12em", whiteSpace: "nowrap", flexShrink: 0 }}
               >
                 {item}
               </button>
             ))}
           </nav>
-          <div style={{ display: "grid", gap: 10, width: "100%", maxWidth: 520 }}>
-            <AccountPanel accounts={accounts} activeAccountId={activeAccountId} setActiveAccountId={switchAccount} onCreateAccount={createLocalAccount} />
-            <WorkspacePanel workspace={workspace} usage={usage} setWorkspace={setWorkspace} onResetUsage={resetTodayUsage} scopeId={activeAccountId} />
-            <OperatorAuthPanel authState={operatorAuth} draft={operatorDraft} setDraft={setOperatorDraft} loading={operatorLoading} onLogin={signInOperator} onLogout={signOutOperator} onRefresh={refreshOperatorSession} />
-            <ProviderPanel settings={providerSettings} setSettings={setProviderSettings} />
-          </div>
+
+          {/* Settings button — opens drawer */}
+          <button
+            onClick={() => setSettingsOpen((v) => !v)}
+            title="Settings"
+            style={{ background: settingsOpen ? "rgba(244,90,67,0.12)" : "transparent", border: "1px solid " + (settingsOpen ? "rgba(244,90,67,0.3)" : "rgba(255,255,255,0.08)"), color: operatorAuth.authenticated ? "rgba(121,217,199,0.9)" : "rgba(255,255,255,0.4)", width: 36, height: 36, cursor: "pointer", fontFamily: "monospace", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, borderRadius: 2 }}
+          >
+            ⚙
+          </button>
         </div>
+
+        {/* Settings drawer */}
+        {settingsOpen && (
+          <div style={{ position: "fixed", top: 52, right: 0, width: "min(420px, 100vw)", height: "calc(100vh - 52px)", background: "rgba(5,8,12,0.98)", borderLeft: "1px solid rgba(255,255,255,0.07)", zIndex: 100, overflowY: "auto", backdropFilter: "blur(20px)" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.3)", letterSpacing: "0.2em", textTransform: "uppercase" }}>Settings</span>
+              <button onClick={() => setSettingsOpen(false)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>✕</button>
+            </div>
+            <div style={{ padding: "16px 20px", display: "grid", gap: 12 }}>
+              <AccountPanel accounts={accounts} activeAccountId={activeAccountId} setActiveAccountId={switchAccount} onCreateAccount={createLocalAccount} />
+              <WorkspacePanel workspace={workspace} usage={usage} setWorkspace={setWorkspace} onResetUsage={resetTodayUsage} scopeId={activeAccountId} />
+              <OperatorAuthPanel authState={operatorAuth} draft={operatorDraft} setDraft={setOperatorDraft} loading={operatorLoading} onLogin={signInOperator} onLogout={signOutOperator} onRefresh={refreshOperatorSession} />
+              <ProviderPanel settings={providerSettings} setSettings={setProviderSettings} />
+            </div>
+          </div>
+        )}
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 20px 12px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontFamily: "monospace", fontSize: 8, color: dataMode === "shared" ? "rgba(121,217,199,0.78)" : "rgba(255,255,255,0.24)", letterSpacing: "0.16em", textTransform: "uppercase" }}>
             {dataMode === "shared" ? "Shared archive live" : dataMode === "seed" ? "Seed archive fallback" : "Local archive fallback"}
