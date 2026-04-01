@@ -990,6 +990,24 @@ function buildModerationHeaders(baseHeaders = {}) {
   };
 }
 
+async function postToX(mode, entry, customText) {
+  const headers = { "Content-Type": "application/json" };
+  // Use session cookie (credentials: same-origin handles this)
+  const body = mode === "custom"
+    ? { mode: "custom", text: customText }
+    : { mode, entry };
+
+  const response = await fetch("/api/x-post", {
+    method: "POST",
+    credentials: "same-origin",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || "Could not post to X.");
+  return payload;
+}
+
 function buildHttpError(statusCode, message) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -1182,7 +1200,60 @@ function HeroMetrics({ entries }) {
   );
 }
 
-function FeaturedCard({ entry, featuredMeta }) {
+function XShareButton({ entry, canPost, compact = false }) {
+  const [status, setStatus] = React.useState("idle"); // idle | posting | done | error
+  const [lastUrl, setLastUrl] = React.useState("");
+  const [mode, setMode] = React.useState("thread"); // thread | opinion
+
+  if (!canPost) return null;
+
+  async function handlePost() {
+    if (status === "posting") return;
+    setStatus("posting");
+    try {
+      const result = await postToX(mode, entry);
+      setLastUrl(result?.thread_url || result?.tweets?.[0]?.url || "");
+      setStatus("done");
+      setTimeout(() => setStatus("idle"), 8000);
+    } catch (err) {
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 5000);
+    }
+  }
+
+  const label = status === "posting" ? "Posting..." : status === "done" ? "Posted ✓" : status === "error" ? "Failed — retry" : mode === "thread" ? "Post thread" : "Post opinion";
+  const color = status === "done" ? "rgba(121,217,199,0.9)" : status === "error" ? "rgba(244,90,67,0.9)" : "#fff";
+  const bg = status === "done" ? "rgba(121,217,199,0.1)" : "rgba(255,255,255,0.04)";
+
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      {!compact && (
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value)}
+          style={{ background: "#0a1018", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)", padding: "6px 8px", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.1em", cursor: "pointer" }}
+        >
+          <option value="thread">Thread (3 tweets)</option>
+          <option value="opinion">Opinion (1 tweet)</option>
+        </select>
+      )}
+      <button
+        onClick={handlePost}
+        disabled={status === "posting"}
+        style={{ background: bg, border: "1px solid rgba(255,255,255,0.1)", color, padding: compact ? "5px 10px" : "7px 14px", cursor: status === "posting" ? "not-allowed" : "pointer", fontFamily: "monospace", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 5 }}
+      >
+        <span style={{ opacity: 0.7 }}>𝕏</span> {label}
+      </button>
+      {status === "done" && lastUrl && (
+        <a href={lastUrl} target="_blank" rel="noopener noreferrer" style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(121,217,199,0.7)", textDecoration: "none", letterSpacing: "0.1em" }}>
+          View →
+        </a>
+      )}
+    </div>
+  );
+}
+
+function FeaturedCard({ entry, featuredMeta, canPost }) {
   const verdict = VERDICT_CFG[entry.novelty_verdict] || VERDICT_CFG["Solid Execution"];
   const category = CAT_CFG[entry.category] || CAT_CFG.other;
   const isScheduled = featuredMeta?.mode === "scheduled" || featuredMeta?.mode === "scheduled-local";
@@ -1249,12 +1320,18 @@ function FeaturedCard({ entry, featuredMeta }) {
             <p style={{ margin: 0, fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 18, lineHeight: 1.55, color: "rgba(255,255,255,0.72)", fontStyle: "italic" }}>{entry.editorial_note}</p>
           </div>
         </div>
+
+        {canPost && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "flex-end" }}>
+            <XShareButton entry={entry} canPost={canPost} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function FeedList({ entries, onSelect }) {
+function FeedList({ entries, onSelect, canPost }) {
   return (
     <div style={{ border: `1px solid ${UI_COLORS.border}`, background: UI_COLORS.panel }}>
       {entries.map((entry) => {
@@ -1279,6 +1356,11 @@ function FeedList({ entries, onSelect }) {
                 <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.6, color: UI_COLORS.textMuted, maxWidth: 560 }}>
                   {entry.one_liner}
                 </div>
+                {canPost && (
+                  <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                    <XShareButton entry={entry} canPost={canPost} compact />
+                  </div>
+                )}
               </div>
               <div style={{ minWidth: 60, textAlign: "right" }}>
                 <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 30, lineHeight: 1, color: verdict.color }}>{entry.novelty_score}</div>
@@ -1294,7 +1376,7 @@ function FeedList({ entries, onSelect }) {
 
 function ProductRail({ setView }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 16 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(220px,100%),1fr))", gap: 16 }}>
       {PRODUCT_PILLARS.map((pillar) => (
         <div key={pillar.id} style={{ border: `1px solid ${UI_COLORS.border}`, background: "linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))", padding: "18px 16px" }}>
           <SectionLabel color={pillar.label === "Bull" ? "#f45a43" : UI_COLORS.label}>{pillar.label}</SectionLabel>
@@ -1322,7 +1404,7 @@ function ProductRail({ setView }) {
   );
 }
 
-function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
+function DigestView({ entries, featured, featuredMeta, onSelect, setView, canPost }) {
   const latest = entries.slice(0, 4);
   const isScheduled = featuredMeta?.mode === "scheduled" || featuredMeta?.mode === "scheduled-local";
 
@@ -1330,10 +1412,10 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
     <div style={{ display: "grid", gap: 34 }}>
       <section style={{ position: "relative", overflow: "hidden", border: `1px solid ${UI_COLORS.border}`, background: "radial-gradient(circle at top left,rgba(102,163,255,0.16),transparent 34%), radial-gradient(circle at bottom right,rgba(244,90,67,0.16),transparent 32%), linear-gradient(180deg,#0a0f18 0%,#0a0d14 100%)", padding: "34px 30px 28px" }}>
         <Beam />
-        <div style={{ position: "relative", zIndex: 1, display: "grid", gridTemplateColumns: "minmax(0,1.25fr) minmax(280px,0.8fr)", gap: 24 }}>
+        <div style={{ position: "relative", zIndex: 1, display: "grid", gridTemplateColumns: "minmax(0,1.25fr) minmax(280px,0.8fr)", gap: 24 }} className="hero-grid">
           <div>
             <SectionLabel color="rgba(244,90,67,0.82)">Introducing / batch one / editorial core</SectionLabel>
-            <h1 style={{ margin: 0, fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: "clamp(58px,9vw,110px)", lineHeight: 0.86, letterSpacing: "0.03em", textTransform: "uppercase", color: "#fff8f1" }}>
+            <h1 style={{ margin: 0, fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: "clamp(44px,8vw,110px)", lineHeight: 0.86, letterSpacing: "0.03em", textTransform: "uppercase", color: "#fff8f1" }}>
               The launch
               <br />
               journalist
@@ -1352,7 +1434,7 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
               </button>
             </div>
           </div>
-          <div>
+          <div className="hide-mobile">
             <SectionLabel color="#66a3ff">Business spine</SectionLabel>
             <div style={{ border: `1px solid ${UI_COLORS.border}`, background: "rgba(255,255,255,0.05)", padding: "16px" }}>
               <div style={{ display: "grid", gap: 12 }}>
@@ -1378,11 +1460,11 @@ function DigestView({ entries, featured, featuredMeta, onSelect, setView }) {
       {featured && (
         <section>
           <SectionLabel>{isScheduled ? "Today's featured" : "Daily auto-featured profile"}</SectionLabel>
-          <FeaturedCard entry={featured} featuredMeta={featuredMeta} />
+          <FeaturedCard entry={featured} featuredMeta={featuredMeta} canPost={canPost} />
         </section>
       )}
 
-      <section style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 300px", gap: 22 }}>
+      <section style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 300px", gap: 22 }} className="bottom-grid">
         <div>
           <SectionLabel>Recent launches</SectionLabel>
           <FeedList entries={latest} onSelect={onSelect} />
@@ -2378,7 +2460,7 @@ function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onRe
   );
 }
 
-function ArchiveView({ entries, filter, setFilter, onSelect }) {
+function ArchiveView({ entries, filter, setFilter, onSelect, canPost }) {
   const filtered = filter === "all" ? entries : entries.filter((entry) => entry.novelty_verdict === filter);
 
   return (
@@ -2402,7 +2484,7 @@ function ArchiveView({ entries, filter, setFilter, onSelect }) {
           );
         })}
       </div>
-      <FeedList entries={filtered} onSelect={onSelect} />
+      <FeedList entries={filtered} onSelect={onSelect} canPost={canPost} />
     </div>
   );
 }
@@ -3280,7 +3362,7 @@ export default function App() {
         : "viewer";
     const canPromoteEntries = hasOperatorRoleAtLeast(effectiveModerationRole, "editor");
 
-    if (view === "digest") return <DigestView entries={entries} featured={featured} featuredMeta={featuredMeta} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); }} setView={setView} />;
+    if (view === "digest") return <DigestView entries={entries} featured={featured} featuredMeta={featuredMeta} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); }} setView={setView} canPost={canPromoteEntries} />;
     if (view === "monitor") return <MonitorView items={monitorItems} loading={monitorLoading || submissionLoading} error={monitorError} onSweep={runMonitorSweep} onQueueToReview={queueMonitorItem} onPromoteToDigest={featureMonitorCandidate} bestPick={monitorBestPick} shortlist={monitorShortlist} monitorMode={monitorMode} monitorSources={monitorSources} monitorStats={monitorStats} snapshots={monitorSnapshots} monitorProfile={monitorProfile} setMonitorProfile={async (profile) => {
       setMonitorProfile(profile);
       await saveMonitorSettingsToStorage({ profile }, activeAccountId);
@@ -3308,7 +3390,7 @@ export default function App() {
     if (view === "bull") return <BullView entries={entries} setView={setView} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} input={bullInput} setInput={setBullInput} loading={loadingMode === "bull"} analyze={() => runMode("bull", bullInput)} error={errorByMode.bull} result={bullResult} history={artifacts.filter((item) => item.mode === "bull")} watchlist={watchlist} onLoadHistory={(artifact) => { setBullInput(artifact.input || ""); setBullResult(artifact.result || null); }} onSaveWatchlist={addBullToWatchlist} />;
     if (view === "submit") return <SubmitView form={submissionForm} setForm={setSubmissionForm} loading={submissionLoading} onSubmit={submitProject} error={submissionError} success={submissionSuccess} dataMode={dataMode} />;
     if (view === "review") return <ReviewView submissions={submissions} loading={submissionLoading} onPromote={promoteSubmission} onPromoteAndFeature={promoteAndFeatureSubmission} onReject={rejectSubmission} dataMode={dataMode} moderationStatus={moderationStatus} moderationAccessHint={operatorAuth.authenticated || Boolean(String(providerSettings.moderationToken || "").trim())} onRefreshModeration={refreshModerationQueue} auditLogs={auditLogs} canPromoteEntries={canPromoteEntries} effectiveRole={effectiveModerationRole} />;
-    return <ArchiveView entries={entries} filter={filter} setFilter={setFilter} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} />;
+    return <ArchiveView entries={entries} filter={filter} setFilter={setFilter} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} canPost={canPromoteEntries} />;
   })();
 
   return (
@@ -3320,6 +3402,13 @@ export default function App() {
         textarea:focus{border-color:rgba(102,163,255,0.4)}
         ::-webkit-scrollbar{width:6px}
         ::-webkit-scrollbar-thumb{background:rgba(244,90,67,0.24)}
+        nav::-webkit-scrollbar{display:none}
+        @media(max-width:640px){
+          .hero-grid{grid-template-columns:1fr !important}
+          .bottom-grid{grid-template-columns:1fr !important}
+          .hide-mobile{display:none !important}
+          main{padding:20px 14px 40px !important}
+        }
       `}</style>
 
       <header style={{ position: "sticky", top: 0, zIndex: 60, backdropFilter: "blur(18px)", background: "rgba(5,8,12,0.9)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
@@ -3331,7 +3420,7 @@ export default function App() {
           </button>
 
           {/* Nav */}
-          <nav style={{ display: "flex", gap: 2, flexWrap: "nowrap", overflow: "auto", flex: 1, justifyContent: "center" }}>
+          <nav style={{ display: "flex", gap: 2, flexWrap: "nowrap", overflowX: "auto", overflowY: "hidden", flex: 1, justifyContent: "center", scrollbarWidth: "none", msOverflowStyle: "none" }}>
             {NAV_ITEMS.map((item) => (
               <button
                 key={item}
@@ -3368,12 +3457,12 @@ export default function App() {
             </div>
           </div>
         )}
-        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 20px 12px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "monospace", fontSize: 8, color: dataMode === "shared" ? "rgba(121,217,199,0.78)" : "rgba(255,255,255,0.24)", letterSpacing: "0.16em", textTransform: "uppercase" }}>
-            {dataMode === "shared" ? "Shared archive live" : dataMode === "seed" ? "Seed archive fallback" : "Local archive fallback"}
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 20px 8px", display: "flex", justifyContent: "space-between", gap: 8, overflow: "hidden" }}>
+          <span style={{ fontFamily: "monospace", fontSize: 8, color: dataMode === "shared" ? "rgba(121,217,199,0.78)" : "rgba(255,255,255,0.24)", letterSpacing: "0.14em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+            {dataMode === "shared" ? "● Shared archive live" : dataMode === "seed" ? "Seed fallback" : "Local fallback"}
           </span>
-          <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.18)", letterSpacing: "0.16em", textTransform: "uppercase" }}>
-            {getPlanConfig(workspace.plan).label} workspace active for {accounts.find((item) => item.id === activeAccountId)?.name || "local operator"} | featured updates become global when Supabase is connected
+          <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.14)", letterSpacing: "0.12em", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {getPlanConfig(workspace.plan).label} workspace
           </span>
         </div>
       </header>
