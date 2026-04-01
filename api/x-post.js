@@ -87,8 +87,9 @@ export default async function handler(req, res) {
 
   } catch (error) {
     const code = error?.code || "";
-    if (code === "X_POST_AUTH_FAILED") return sendJson(res, 401, { error: "An unexpected error occurred. Please try again." });
-    if (code === "X_POST_RATE_LIMITED") return sendJson(res, 429, { error: "An unexpected error occurred. Please try again." });
-    return sendJson(res, 500, { error: "An unexpected error occurred. Please try again." });
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    if (code === "X_POST_AUTH_FAILED") return sendJson(res, 401, { error: "X auth failed: " + msg });
+    if (code === "X_POST_RATE_LIMITED") return sendJson(res, 429, { error: "X rate limited: " + msg });
+    return sendJson(res, 500, { error: "X error: " + msg });
   }
 }
