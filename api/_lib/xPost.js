@@ -105,9 +105,13 @@ export async function postTweet(text, options = {}) {
     throw error;
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const error = new Error(payload?.detail || payload?.title || `X API error ${response.status}.`);
+    const rawText = await response.text().catch(() => "");
+    let payload = {};
+    try { payload = JSON.parse(rawText); } catch {}
+    const detail = payload?.detail || payload?.title || payload?.errors?.[0]?.message || rawText.slice(0, 120) || `HTTP ${response.status}`;
+    const error = new Error(`X API ${response.status}: ${detail}`);
     error.code = "X_POST_FAILED";
+    error.status = response.status;
     throw error;
   }
 
