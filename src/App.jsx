@@ -1201,9 +1201,9 @@ function HeroMetrics({ entries }) {
 }
 
 function XShareButton({ entry, canPost, compact = false }) {
-  const [status, setStatus] = React.useState("idle"); // idle | posting | done | error
-  const [lastUrl, setLastUrl] = React.useState("");
-  const [mode, setMode] = React.useState("thread"); // thread | opinion
+  const [status, setStatus] = useState("idle"); // idle | posting | done | error
+  const [lastUrl, setLastUrl] = useState("");
+  const [mode, setMode] = useState("thread"); // thread | opinion
 
   if (!canPost) return null;
 
