@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   // Operator auth required — only signed-in editors/admins can post
   const auth = requireOperatorAccess(req, ["editor", "admin"]);
   if (!auth.ok) {
-    return sendJson(res, auth.statusCode || 401, { error: auth.error });
+    return sendJson(res, auth.statusCode || 401, { error: "Auth required: " + (auth.error || "operator session needed.") });
   }
 
   const clientIp = getClientIp(req);
@@ -50,8 +50,7 @@ export default async function handler(req, res) {
 
   if (!isXPostConfigured()) {
     return sendJson(res, 503, {
-      error: "X posting not configured.",
-      setup_hint: "Add X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET to environment variables.",
+      error: "X credentials missing. Add X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET to Vercel env vars.",
     });
   }
 
