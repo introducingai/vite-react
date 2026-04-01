@@ -52,6 +52,7 @@ function localApiPlugin() {
           else if (pathname === "/api/market-scan") modulePath = "./api/market-scan.js";
           else if (pathname === "/api/monitor") modulePath = "./api/monitor.js";
           else if (pathname === "/api/x-search") modulePath = "./api/x-search.js";
+          else if (pathname === "/api/x-post") modulePath = "./api/x-post.js";
           else if (pathname === "/api/entries") modulePath = "./api/entries.js";
           else if (pathname === "/api/submissions") modulePath = "./api/submissions.js";
           else if (pathname === "/api/audit-logs") modulePath = "./api/audit-logs.js";
