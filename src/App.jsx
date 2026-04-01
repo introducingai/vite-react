@@ -1217,7 +1217,8 @@ function XShareButton({ entry, canPost, compact = false }) {
       setTimeout(() => setStatus("idle"), 8000);
     } catch (err) {
       setStatus("error");
-      setTimeout(() => setStatus("idle"), 5000);
+      setLastUrl(err?.message || "Unknown error");
+      setTimeout(() => { setStatus("idle"); setLastUrl(""); }, 10000);
     }
   }
 
@@ -1248,6 +1249,11 @@ function XShareButton({ entry, canPost, compact = false }) {
         <a href={lastUrl} target="_blank" rel="noopener noreferrer" style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(121,217,199,0.7)", textDecoration: "none", letterSpacing: "0.1em" }}>
           View →
         </a>
+      )}
+      {status === "error" && lastUrl && (
+        <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(244,90,67,0.7)", letterSpacing: "0.08em", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {lastUrl}
+        </span>
       )}
     </div>
   );
