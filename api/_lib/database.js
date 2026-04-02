@@ -246,6 +246,7 @@ export async function createSubmission(payload) {
     contact: typeof payload?.contact === "string" ? payload.contact.trim().slice(0, 180) : "",
     category_hint: typeof payload?.category_hint === "string" ? payload.category_hint.trim().slice(0, 80) : "",
     summary: typeof payload?.summary === "string" ? payload.summary.trim().slice(0, 4000) : "",
+    notes: typeof payload?.notes === "string" ? payload.notes.trim().slice(0, 8000) : "",
   };
 
   if (!clean.project_name || !clean.summary) {
