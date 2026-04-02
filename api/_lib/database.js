@@ -177,13 +177,17 @@ export async function createEntry(entry) {
     };
   }
 
-  const [inserted] = await supabaseRequest("entries", {
+  const [inserted] = await supabaseRequest(`entries?select=${ENTRY_COLUMNS}`, {
     method: "POST",
     body: {
       ...normalized,
       date: new Date().toISOString(),
     },
   });
+
+  if (!inserted?.id) {
+    throw new Error("Entry insert did not return an id from Supabase.");
+  }
 
   return mapEntry(inserted);
 }
@@ -212,7 +216,7 @@ export async function createAuditLog(event) {
     };
   }
 
-  const [inserted] = await supabaseRequest("audit_logs", {
+  const [inserted] = await supabaseRequest("audit_logs?select=*", {
     method: "POST",
     body: payload,
   });
@@ -263,7 +267,7 @@ export async function createSubmission(payload) {
     };
   }
 
-  const [inserted] = await supabaseRequest("submissions", {
+  const [inserted] = await supabaseRequest("submissions?select=*", {
     method: "POST",
     body: {
       ...clean,
