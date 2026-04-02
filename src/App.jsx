@@ -2376,9 +2376,7 @@ Source URL: ${tweetUrl.trim()}` : ""),
             <textarea
               value={tweetText}
               onChange={(e) => { setTweetText(e.target.value); setProfile(null); setStep("input"); setAnalyzeError(""); }}
-              placeholder={"Paste the launch tweet or full thread here...
-
-The agent will extract the project name, category, novelty score, editorial take, and everything else automatically."}
+              placeholder="Paste the launch tweet or full thread here... The agent will extract the project name, category, novelty score, editorial take, and everything else automatically."
               style={{ width: "100%", minHeight: 160, background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.82)", padding: 16, fontSize: 14, lineHeight: 1.75, fontFamily: "'Crimson Pro',Georgia,serif", resize: "vertical" }}
             />
           </div>
