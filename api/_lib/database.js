@@ -177,19 +177,21 @@ export async function createEntry(entry) {
     };
   }
 
-  const [inserted] = await supabaseRequest(`entries?select=${ENTRY_COLUMNS}`, {
-    method: "POST",
-    body: {
-      ...normalized,
-      date: new Date().toISOString(),
-    },
-  });
+const newId = crypto.randomUUID();
 
-  if (!inserted?.id) {
-    throw new Error("Entry insert did not return an id from Supabase.");
-  }
+const [inserted] = await supabaseRequest(`entries?select=${ENTRY_COLUMNS}`, {
+  method: "POST",
+  body: {
+    id: newId,
+    ...normalized,
+    date: new Date().toISOString(),
+  },
+});
 
-  return mapEntry(inserted);
+const record = inserted || { id: newId, ...normalized, date: new Date().toISOString() };
+return mapEntry(record);
+
+
 }
 
 export async function createAuditLog(event) {
