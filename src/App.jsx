@@ -792,6 +792,30 @@ async function runRealMonitorSweep(profile = "balanced") {
 }
 
 function buildEntryFromSubmission(submission) {
+  // If the submission has a pre-generated profile attached, use it directly
+  if (submission?.notes) {
+    try {
+      const parsed = JSON.parse(submission.notes);
+      if (parsed?.profile?.project_name) {
+        const p = parsed.profile;
+        return {
+          project_name: p.project_name,
+          one_liner: p.one_liner,
+          what_it_does: p.what_it_does,
+          who_built_it: p.who_built_it || "Unknown",
+          category: p.category || "other",
+          tech_stack: Array.isArray(p.tech_stack) ? p.tech_stack : [],
+          novelty_score: Number(p.novelty_score) || 5,
+          novelty_verdict: p.novelty_verdict || "Solid Execution",
+          novelty_reasoning: p.novelty_reasoning || "",
+          hook: p.hook || "",
+          missing: p.missing || "",
+          editorial_note: p.editorial_note || "",
+          source_url: parsed.source_tweet || submission?.project_url || "",
+        };
+      }
+    } catch {}
+  }
   const summary = typeof submission?.summary === "string" ? submission.summary.trim() : "";
   const projectName = typeof submission?.project_name === "string" ? submission.project_name.trim() : "Untitled Project";
   const categoryHint = typeof submission?.category_hint === "string" ? submission.category_hint.trim().toLowerCase() : "";
@@ -2272,74 +2296,202 @@ function BullView({ entries, setView, onSelect, input, setInput, loading, analyz
   );
 }
 
-function SubmitView({ form, setForm, loading, onSubmit, error, success, dataMode }) {
-  function updateField(key, value) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+function SubmitView({ form, setForm, loading, onSubmit, onSubmitWithProfile, error, success, dataMode, providerSettings }) {
+  const [tweetText, setTweetText] = useState("");
+  const [tweetUrl, setTweetUrl] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [analyzeError, setAnalyzeError] = useState("");
+  const [step, setStep] = useState("input"); // input | preview | done
+
+  const canAnalyze = tweetText.trim().length >= 20 && !analyzing && !loading;
+
+  async function analyzePost() {
+    if (!canAnalyze) return;
+    setAnalyzing(true);
+    setAnalyzeError("");
+    setProfile(null);
+
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: tweetText.trim() + (tweetUrl.trim() ? `
+
+Source URL: ${tweetUrl.trim()}` : ""),
+          mode: "digest",
+          provider: providerSettings?.provider || "anthropic",
+          model: providerSettings?.[`${providerSettings?.provider || "anthropic"}Model`] || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Analysis failed.");
+      setProfile(data.result);
+      setStep("preview");
+    } catch (err) {
+      setAnalyzeError(err instanceof Error ? err.message : "Analysis failed.");
+    } finally {
+      setAnalyzing(false);
+    }
   }
+
+  async function handleSubmit() {
+    if (!profile) return;
+    // Build submission with the pre-generated profile attached
+    const submission = {
+      project_name: profile.project_name || "Unknown",
+      project_url: tweetUrl.trim(),
+      contact: "",
+      category_hint: profile.category || "other",
+      summary: tweetText.trim(),
+      // Store profile as JSON in notes so review queue can promote directly
+      notes: JSON.stringify({ profile, source_tweet: tweetUrl.trim() }),
+    };
+    await onSubmitWithProfile(submission);
+    if (!error) {
+      setStep("done");
+      setTweetText("");
+      setTweetUrl("");
+      setProfile(null);
+    }
+  }
+
+  const VERDICT_COLOR = { "Genuinely New": "#f45a43", "Solid Execution": "#66a3ff", "Repackaged": "#9aa7ba", "Vaporware": "#6e7785" };
 
   return (
     <ToolShell
-      eyebrow="Submission intake"
-      title="Let builders feed the archive."
-      description="This lane opens the growth loop. Founders can submit their project, URL, and raw positioning so the editorial system has an intake queue instead of depending only on manual discovery."
-      asideTitle="Queue logic"
-      asideItems={["Collect project metadata", "Queue for review", "Promote accepted entries into archive", "Use submissions to train future featured picks"]}
+      eyebrow="Signal intake"
+      title="Paste a tweet. We profile the rest."
+      description="Drop any launch tweet or thread. The agent extracts the project, scores its novelty, and queues it for the archive. No forms. No friction."
+      asideTitle="What the agent extracts"
+      asideItems={["Project name and category", "Novelty score and verdict", "What it does + who built it", "Editorial hook and missing proof", "Screenshot line"]}
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 22 }}>
-        <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "20px 18px", display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gap: 20 }}>
+
+        {/* Step 1: Input */}
+        <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "20px 18px", display: "grid", gap: 14 }}>
           <div>
-            <SectionLabel color="#f45a43">Project name</SectionLabel>
-            <input value={form.project_name} onChange={(event) => updateField("project_name", event.target.value)} placeholder="PenstAgent" style={{ width: "100%", background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: 14, fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 22 }} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <SectionLabel>Project URL</SectionLabel>
-              <input value={form.project_url} onChange={(event) => updateField("project_url", event.target.value)} placeholder="https://example.com" style={{ width: "100%", background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: 14, fontFamily: "monospace", fontSize: 12 }} />
-            </div>
-            <div>
-              <SectionLabel>Contact</SectionLabel>
-              <input value={form.contact} onChange={(event) => updateField("contact", event.target.value)} placeholder="email, X, Telegram" style={{ width: "100%", background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: 14, fontFamily: "monospace", fontSize: 12 }} />
-            </div>
-          </div>
-          <div>
-            <SectionLabel>Category hint</SectionLabel>
-            <input value={form.category_hint} onChange={(event) => updateField("category_hint", event.target.value)} placeholder="agent / security / memecoin / devtool" style={{ width: "100%", background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "#fff", padding: 14, fontFamily: "monospace", fontSize: 12 }} />
+            <SectionLabel color="#f45a43">Tweet or thread text</SectionLabel>
+            <textarea
+              value={tweetText}
+              onChange={(e) => { setTweetText(e.target.value); setProfile(null); setStep("input"); setAnalyzeError(""); }}
+              placeholder={"Paste the launch tweet or full thread here...
+
+The agent will extract the project name, category, novelty score, editorial take, and everything else automatically."}
+              style={{ width: "100%", minHeight: 160, background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.82)", padding: 16, fontSize: 14, lineHeight: 1.75, fontFamily: "'Crimson Pro',Georgia,serif", resize: "vertical" }}
+            />
           </div>
           <div>
-            <SectionLabel>Summary</SectionLabel>
-            <textarea value={form.summary} onChange={(event) => updateField("summary", event.target.value)} maxLength={4000} placeholder="What it is, who it is for, what is differentiated, and what proof already exists." style={{ width: "100%", minHeight: 220, background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.78)", padding: 16, fontSize: 14, lineHeight: 1.7, fontFamily: "'Crimson Pro',Georgia,serif" }} />
+            <SectionLabel>Tweet URL (optional — helps source tracking)</SectionLabel>
+            <input
+              value={tweetUrl}
+              onChange={(e) => setTweetUrl(e.target.value)}
+              placeholder="https://x.com/username/status/..."
+              style={{ width: "100%", background: "#09101a", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)", padding: "10px 14px", fontFamily: "monospace", fontSize: 11 }}
+            />
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-            <span style={{ fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.18)", letterSpacing: "0.12em" }}>{form.summary.length}/4000</span>
-            <button onClick={onSubmit} disabled={!form.project_name.trim() || !form.summary.trim() || loading} style={{ background: form.project_name.trim() && form.summary.trim() ? "#f45a43" : "rgba(255,255,255,0.05)", border: "none", color: form.project_name.trim() && form.summary.trim() ? "#fff" : "rgba(255,255,255,0.12)", padding: "11px 24px", cursor: form.project_name.trim() && form.summary.trim() ? "pointer" : "not-allowed", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 17, letterSpacing: "0.1em" }}>
-              {loading ? "SUBMITTING" : "SUBMIT PROJECT"}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.16)", letterSpacing: "0.12em" }}>
+              {tweetText.length} chars {tweetText.length < 20 ? "— paste a tweet to enable analysis" : ""}
+            </span>
+            <button
+              onClick={analyzePost}
+              disabled={!canAnalyze}
+              style={{ background: canAnalyze ? "#f45a43" : "rgba(255,255,255,0.04)", border: "none", color: canAnalyze ? "#fff" : "rgba(255,255,255,0.14)", padding: "11px 28px", cursor: canAnalyze ? "pointer" : "not-allowed", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 17, letterSpacing: "0.1em" }}
+            >
+              {analyzing ? "PROFILING..." : "ANALYZE LAUNCH"}
             </button>
           </div>
-          {error && <div style={{ padding: 12, border: "1px solid rgba(244,90,67,0.18)", background: "rgba(244,90,67,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(244,90,67,0.82)" }}>{error}</div>}
-          {success && <div style={{ padding: 12, border: "1px solid rgba(121,217,199,0.22)", background: "rgba(121,217,199,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(121,217,199,0.82)" }}>{success}</div>}
+          {analyzeError && (
+            <div style={{ padding: 12, border: "1px solid rgba(244,90,67,0.18)", background: "rgba(244,90,67,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(244,90,67,0.82)" }}>{analyzeError}</div>
+          )}
         </div>
 
-        <div style={{ display: "grid", gap: 18 }}>
-          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "20px 18px" }}>
-            <SectionLabel>Submission system status</SectionLabel>
-            <div style={{ fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 24, lineHeight: 1.38, color: "rgba(255,255,255,0.78)" }}>
-              {dataMode === "shared" ? "Shared queue is live." : "Queue form is live, but shared storage is not configured yet."}
+        {/* Step 2: Profile preview */}
+        {profile && step === "preview" && (
+          <div style={{ border: "1px solid rgba(102,163,255,0.18)", background: "rgba(102,163,255,0.04)", padding: "20px 18px", display: "grid", gap: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <SectionLabel color="#66a3ff">Agent profile — review before queuing</SectionLabel>
+                <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 32, color: "#fff", letterSpacing: "0.04em", textTransform: "uppercase", lineHeight: 1 }}>
+                  {profile.project_name}
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.28)", marginTop: 4, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+                  {profile.category} · by {profile.who_built_it || "unknown"}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 42, lineHeight: 1, color: VERDICT_COLOR[profile.novelty_verdict] || "#fff" }}>
+                  {profile.novelty_score}/10
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: 9, color: VERDICT_COLOR[profile.novelty_verdict] || "rgba(255,255,255,0.4)", letterSpacing: "0.12em" }}>
+                  {profile.novelty_verdict}
+                </div>
+              </div>
             </div>
-            <div style={{ marginTop: 10, fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.28)" }}>
-              {dataMode === "shared"
-                ? "New submissions land in the global moderation queue."
-                : "Configure Supabase to persist submissions for all users and expose a real review queue."}
+
+            <div style={{ borderLeft: "2px solid rgba(255,255,255,0.08)", paddingLeft: 14, display: "grid", gap: 12 }}>
+              <div>
+                <div style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.22)", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 4 }}>What it does</div>
+                <div style={{ fontFamily: "monospace", fontSize: 11, color: "rgba(255,255,255,0.6)", lineHeight: 1.65 }}>{profile.what_it_does}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.22)", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 4 }}>Hook</div>
+                <div style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 18, color: "#fff", letterSpacing: "0.03em" }}>{profile.hook}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.22)", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 4 }}>Editorial take</div>
+                <div style={{ fontFamily: "'Crimson Pro',Georgia,serif", fontSize: 16, color: "rgba(255,255,255,0.72)", fontStyle: "italic", lineHeight: 1.5 }}>{profile.editorial_note}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.22)", letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 4 }}>Missing</div>
+                <div style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.36)", lineHeight: 1.6 }}>{profile.missing}</div>
+              </div>
             </div>
+
+            <div style={{ display: "flex", gap: 10, alignItems: "center", paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap" }}>
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                style={{ background: "#f45a43", border: "none", color: "#fff", padding: "11px 26px", cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 17, letterSpacing: "0.1em" }}
+              >
+                {loading ? "QUEUING..." : "QUEUE FOR REVIEW"}
+              </button>
+              <button
+                onClick={() => { setProfile(null); setStep("input"); }}
+                style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.4)", padding: "11px 18px", cursor: "pointer", fontFamily: "monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}
+              >
+                Re-analyze
+              </button>
+              <span style={{ fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.2)", letterSpacing: "0.1em" }}>
+                Profile attached — operator can promote in one click
+              </span>
+            </div>
+            {error && <div style={{ padding: 12, border: "1px solid rgba(244,90,67,0.18)", background: "rgba(244,90,67,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(244,90,67,0.82)" }}>{error}</div>}
+            {success && <div style={{ padding: 12, border: "1px solid rgba(121,217,199,0.22)", background: "rgba(121,217,199,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(121,217,199,0.82)" }}>{success}</div>}
           </div>
-          <div style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", padding: "20px 18px" }}>
-            <SectionLabel>Required before auto-feature</SectionLabel>
-            <div style={{ display: "grid", gap: 8 }}>
-              {["Project URL or repo", "Clear one-liner", "Proof of what actually ships", "Contact for follow-up"].map((item) => (
-                <div key={item} style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: "rgba(255,255,255,0.3)" }}>{item}</div>
-              ))}
-            </div>
+        )}
+
+        {step === "done" && !profile && (
+          <div style={{ padding: 16, border: "1px solid rgba(121,217,199,0.22)", background: "rgba(121,217,199,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(121,217,199,0.82)", lineHeight: 1.7 }}>
+            Profile queued. The agent's editorial take is attached — the operator can promote it to the archive in one click from the Review tab.
           </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(200px,100%),1fr))", gap: 12 }}>
+          {[
+            ["What the agent reads", "Any tweet, thread, or launch post. Raw text is enough."],
+            ["What it extracts", "Name, category, novelty score, verdict, hook, editorial take, missing proof."],
+            ["What goes to review", "The full pre-generated profile — operator promotes with one click."],
+          ].map(([title, body]) => (
+            <div key={title} style={{ border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)", padding: "14px 14px" }}>
+              <SectionLabel>{title}</SectionLabel>
+              <div style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.3)", lineHeight: 1.65 }}>{body}</div>
+            </div>
+          ))}
         </div>
+
       </div>
     </ToolShell>
   );
@@ -3045,6 +3197,24 @@ export default function App() {
     return nextEntry;
   }
 
+  async function submitProjectWithProfile(submissionData) {
+    setSubmissionLoading(true);
+    setSubmissionError("");
+    setSubmissionSuccess("");
+    try {
+      const created = await createSubmissionOnApi(submissionData);
+      if (!created?.local_only) {
+        setSubmissions((prev) => [created, ...prev]);
+      }
+      setSubmissionSuccess("Queued with full agent profile attached.");
+      if (!created?.local_only) setDataMode("shared");
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : "Could not queue submission.");
+    } finally {
+      setSubmissionLoading(false);
+    }
+  }
+
   async function submitProject() {
     if (!submissionForm.project_name.trim() || !submissionForm.summary.trim() || submissionLoading) return;
 
@@ -3433,7 +3603,7 @@ export default function App() {
     if (view === "launch") return <LaunchView input={launchInput} setInput={setLaunchInput} loading={loadingMode === "launch"} analyze={() => runMode("launch", launchInput)} error={errorByMode.launch} result={launchResult} history={artifacts.filter((item) => item.mode === "launch")} onLoadHistory={(artifact) => { setLaunchInput(artifact.input || ""); setLaunchResult(artifact.result || null); }} />;
     if (view === "gut-check") return <GutCheckView entries={entries} input={gutCheckInput} setInput={setGutCheckInput} loading={loadingMode === "gut-check"} analyze={() => runMode("gut-check", gutCheckInput)} error={errorByMode["gut-check"]} result={gutCheckResult} history={artifacts.filter((item) => item.mode === "gut-check")} onLoadHistory={(artifact) => { setGutCheckInput(artifact.input || ""); setGutCheckResult(artifact.result || null); }} />;
     if (view === "bull") return <BullView entries={entries} setView={setView} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} input={bullInput} setInput={setBullInput} loading={loadingMode === "bull"} analyze={() => runMode("bull", bullInput)} error={errorByMode.bull} result={bullResult} history={artifacts.filter((item) => item.mode === "bull")} watchlist={watchlist} onLoadHistory={(artifact) => { setBullInput(artifact.input || ""); setBullResult(artifact.result || null); }} onSaveWatchlist={addBullToWatchlist} />;
-    if (view === "submit") return <SubmitView form={submissionForm} setForm={setSubmissionForm} loading={submissionLoading} onSubmit={submitProject} error={submissionError} success={submissionSuccess} dataMode={dataMode} />;
+    if (view === "submit") return <SubmitView form={submissionForm} setForm={setSubmissionForm} loading={submissionLoading} onSubmit={submitProject} onSubmitWithProfile={submitProjectWithProfile} error={submissionError} success={submissionSuccess} dataMode={dataMode} providerSettings={providerSettings} />;
     if (view === "review") return <ReviewView submissions={submissions} loading={submissionLoading} onPromote={promoteSubmission} onPromoteAndFeature={promoteAndFeatureSubmission} onReject={rejectSubmission} dataMode={dataMode} moderationStatus={moderationStatus} moderationAccessHint={operatorAuth.authenticated || Boolean(String(providerSettings.moderationToken || "").trim())} onRefreshModeration={refreshModerationQueue} auditLogs={auditLogs} canPromoteEntries={canPromoteEntries} effectiveRole={effectiveModerationRole} />;
     return <ArchiveView entries={entries} filter={filter} setFilter={setFilter} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} canPost={canPromoteEntries} />;
   })();
