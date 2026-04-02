@@ -177,7 +177,7 @@ export async function createEntry(entry) {
     };
   }
 
-const newId = crypto.randomUUID();
+const newId = Date.now();
 
 const [inserted] = await supabaseRequest(`entries?select=${ENTRY_COLUMNS}`, {
   method: "POST",
