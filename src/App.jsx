@@ -3011,9 +3011,10 @@ export default function App() {
       }
     } catch (error) {
       if (isProtectedRouteFailure(error)) {
-        setModerationStatus({ level: "locked", message: error.message || "Archive writes require moderation access." });
-        throw error;
+        setModerationStatus({ level: "locked", message: error.message || "Archive writes require operator access." });
       }
+      // Always rethrow — caller must handle. Never silently fall back to local.
+      throw error;
     }
 
     const updated = [nextEntry, ...entries.filter((item) => item.id !== nextEntry.id)];
@@ -3029,6 +3030,18 @@ export default function App() {
       });
     }
     await saveToStorage(updated, activeAccountId);
+
+    // Resync from Supabase so digest count accumulates correctly
+    if (!nextEntry?.local_only) {
+      try {
+        const remote = await loadEntriesFromApi();
+        if (Array.isArray(remote?.entries) && remote.entries.length > 0) {
+          setEntries(remote.entries);
+          await saveToStorage(remote.entries, activeAccountId);
+        }
+      } catch {}
+    }
+
     return nextEntry;
   }
 
@@ -3209,8 +3222,15 @@ export default function App() {
       setSubmissionSuccess("Monitor candidate promoted and scheduled as today's featured item.");
       setView("digest");
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "Could not promote monitor candidate.");
-      setMonitorError(error instanceof Error ? error.message : "Could not promote monitor candidate.");
+      const msg = error instanceof Error ? error.message : "Could not promote monitor candidate.";
+      setSubmissionError("Promote failed: " + msg);
+      setMonitorError("Promote failed: " + msg);
+      try {
+        const remote = await loadEntriesFromApi();
+        if (Array.isArray(remote?.entries) && remote.entries.length > 0) {
+          setEntries(remote.entries);
+        }
+      } catch {}
     } finally {
       setSubmissionLoading(false);
     }
@@ -3247,11 +3267,21 @@ export default function App() {
 
     try {
       await addEntry(buildEntryFromSubmission(submission));
+      // Only mark accepted after entry write confirmed
       await updateSubmissionState(submission.id, { status: "accepted" });
+      await refreshModerationQueue();
       setSubmissionSuccess("Submission promoted into the archive.");
       setView("archive");
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "Could not promote submission.");
+      const msg = error instanceof Error ? error.message : "Could not promote submission.";
+      setSubmissionError("Promote failed: " + msg + " — submission kept in queue.");
+      // Reload entries from Supabase to resync
+      try {
+        const remote = await loadEntriesFromApi();
+        if (Array.isArray(remote?.entries) && remote.entries.length > 0) {
+          setEntries(remote.entries);
+        }
+      } catch {}
     } finally {
       setSubmissionLoading(false);
     }
@@ -3265,11 +3295,20 @@ export default function App() {
 
     try {
       await addEntry(buildEntryFromSubmission(submission), { featureToday: true });
+      // Only mark accepted after entry write confirmed
       await updateSubmissionState(submission.id, { status: "accepted" });
+      await refreshModerationQueue();
       setSubmissionSuccess("Submission promoted and scheduled as today's featured item.");
       setView("digest");
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : "Could not promote and feature submission.");
+      const msg = error instanceof Error ? error.message : "Could not promote and feature submission.";
+      setSubmissionError("Promote failed: " + msg + " — submission kept in queue.");
+      try {
+        const remote = await loadEntriesFromApi();
+        if (Array.isArray(remote?.entries) && remote.entries.length > 0) {
+          setEntries(remote.entries);
+        }
+      } catch {}
     } finally {
       setSubmissionLoading(false);
     }
