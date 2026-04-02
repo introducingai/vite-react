@@ -2495,7 +2495,7 @@ Source URL: ${tweetUrl.trim()}` : ""),
   );
 }
 
-function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onReject, dataMode, moderationStatus, moderationAccessHint, onRefreshModeration, auditLogs, canPromoteEntries, effectiveRole }) {
+function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onReject, dataMode, moderationStatus, moderationAccessHint, onRefreshModeration, auditLogs, canPromoteEntries, effectiveRole, actionError, actionSuccess }) {
   const queued = submissions.filter((item) => !["accepted", "rejected"].includes(item.status));
 
   return (
@@ -2508,6 +2508,16 @@ function ReviewView({ submissions, loading, onPromote, onPromoteAndFeature, onRe
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 22 }}>
         <div style={{ display: "grid", gap: 14 }}>
+          {actionError && (
+            <div style={{ padding: "12px 14px", border: "1px solid rgba(244,90,67,0.28)", background: "rgba(244,90,67,0.08)", fontFamily: "monospace", fontSize: 10, color: "rgba(244,90,67,0.9)", lineHeight: 1.6 }}>
+              {actionError}
+            </div>
+          )}
+          {actionSuccess && (
+            <div style={{ padding: "12px 14px", border: "1px solid rgba(121,217,199,0.22)", background: "rgba(121,217,199,0.06)", fontFamily: "monospace", fontSize: 10, color: "rgba(121,217,199,0.82)", lineHeight: 1.6 }}>
+              {actionSuccess}
+            </div>
+          )}
           {moderationStatus?.message && (
             <div style={{ border: `1px solid ${moderationStatus.level === "ready" ? "rgba(121,217,199,0.22)" : "rgba(244,90,67,0.18)"}`, background: moderationStatus.level === "ready" ? "rgba(121,217,199,0.06)" : "rgba(244,90,67,0.06)", padding: "16px 14px", display: "grid", gap: 10 }}>
               <div style={{ fontFamily: "monospace", fontSize: 10, lineHeight: 1.7, color: moderationStatus.level === "ready" ? "rgba(121,217,199,0.82)" : "rgba(244,90,67,0.82)" }}>
@@ -3602,7 +3612,7 @@ export default function App() {
     if (view === "gut-check") return <GutCheckView entries={entries} input={gutCheckInput} setInput={setGutCheckInput} loading={loadingMode === "gut-check"} analyze={() => runMode("gut-check", gutCheckInput)} error={errorByMode["gut-check"]} result={gutCheckResult} history={artifacts.filter((item) => item.mode === "gut-check")} onLoadHistory={(artifact) => { setGutCheckInput(artifact.input || ""); setGutCheckResult(artifact.result || null); }} />;
     if (view === "bull") return <BullView entries={entries} setView={setView} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} input={bullInput} setInput={setBullInput} loading={loadingMode === "bull"} analyze={() => runMode("bull", bullInput)} error={errorByMode.bull} result={bullResult} history={artifacts.filter((item) => item.mode === "bull")} watchlist={watchlist} onLoadHistory={(artifact) => { setBullInput(artifact.input || ""); setBullResult(artifact.result || null); }} onSaveWatchlist={addBullToWatchlist} />;
     if (view === "submit") return <SubmitView form={submissionForm} setForm={setSubmissionForm} loading={submissionLoading} onSubmit={submitProject} onSubmitWithProfile={submitProjectWithProfile} error={submissionError} success={submissionSuccess} dataMode={dataMode} providerSettings={providerSettings} />;
-    if (view === "review") return <ReviewView submissions={submissions} loading={submissionLoading} onPromote={promoteSubmission} onPromoteAndFeature={promoteAndFeatureSubmission} onReject={rejectSubmission} dataMode={dataMode} moderationStatus={moderationStatus} moderationAccessHint={operatorAuth.authenticated || Boolean(String(providerSettings.moderationToken || "").trim())} onRefreshModeration={refreshModerationQueue} auditLogs={auditLogs} canPromoteEntries={canPromoteEntries} effectiveRole={effectiveModerationRole} />;
+    if (view === "review") return <ReviewView submissions={submissions} loading={submissionLoading} onPromote={promoteSubmission} onPromoteAndFeature={promoteAndFeatureSubmission} onReject={rejectSubmission} dataMode={dataMode} moderationStatus={moderationStatus} moderationAccessHint={operatorAuth.authenticated || Boolean(String(providerSettings.moderationToken || "").trim())} onRefreshModeration={refreshModerationQueue} auditLogs={auditLogs} canPromoteEntries={canPromoteEntries} effectiveRole={effectiveModerationRole} actionError={submissionError} actionSuccess={submissionSuccess} />;
     return <ArchiveView entries={entries} filter={filter} setFilter={setFilter} onSelect={(entry) => { setFeatured(entry); setFeaturedMeta({ mode: "manual-view", date: entry?.date || new Date().toISOString(), source: "archive" }); setView("digest"); }} canPost={canPromoteEntries} />;
   })();
 
