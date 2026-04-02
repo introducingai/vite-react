@@ -88,6 +88,9 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "GET, POST");
     return sendJson(res, 405, { error: "Method not allowed." });
   } catch (error) {
-    return sendJson(res, 500, { error: "An unexpected error occurred. Please try again." });
+    const msg = error instanceof Error ? error.message : "Unexpected error";
+    // Surface validation/normalizer errors clearly so callers can debug
+    const isValidation = msg.toLowerCase().includes("required") || msg.toLowerCase().includes("missing") || msg.toLowerCase().includes("field");
+    return sendJson(res, isValidation ? 422 : 500, { error: "Entry write failed: " + msg });
   }
 }
