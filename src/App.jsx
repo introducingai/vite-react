@@ -3638,8 +3638,7 @@ export default function App() {
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 20px", height: 52, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           {/* Logo / home button */}
           <button onClick={() => setView("digest")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <img src="/logo.png" alt="INTRODUCING" style={{ height: 28, width: "auto", display: "block" }} onError={(e) => { e.target.style.display="none"; e.target.nextSibling.style.display="block"; }} />
-            <span style={{ display: "none", fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 26, color: "#fff", letterSpacing: "0.12em", lineHeight: 1 }}>INTRODUCING</span>
+            <span style={{ fontFamily: "'Bebas Neue',Impact,sans-serif", fontSize: 26, color: "#fff", letterSpacing: "0.12em", lineHeight: 1 }}>INTRODUCING</span>
           </button>
 
           {/* Nav */}
@@ -3680,6 +3679,17 @@ export default function App() {
             </div>
           </div>
         )}
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "2px 20px 4px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(255,255,255,0.18)", letterSpacing: "0.14em", textTransform: "uppercase", flexShrink: 0 }}>CA:</span>
+          <a
+            href="https://summon.wtf/platform/agent/0x8e7aeeb39e49dfff8a2294ae7096ffa62804a045"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontFamily: "monospace", fontSize: 8, color: "rgba(244,90,67,0.65)", letterSpacing: "0.08em", textDecoration: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+          >
+            0x8E7aeEB39e49dFFF8a2294Ae7096fFa62804A045
+          </a>
+        </div>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 20px 8px", display: "flex", justifyContent: "space-between", gap: 8, overflow: "hidden" }}>
           <span style={{ fontFamily: "monospace", fontSize: 8, color: dataMode === "shared" ? "rgba(121,217,199,0.78)" : "rgba(255,255,255,0.24)", letterSpacing: "0.14em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
             {dataMode === "shared" ? "● Shared archive live" : dataMode === "seed" ? "Seed fallback" : "Local fallback"}
